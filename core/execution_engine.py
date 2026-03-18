@@ -38,8 +38,6 @@ class ExecutionEngine:
     One asyncio.Task is created per open trade; tasks are cleaned up on exit.
     """
 
-    _MONITOR_INTERVAL_SEC = 0.1    # How often the monitor loop evaluates stops
-
     def __init__(self, fetcher: DataFetcher, risk: RiskManager) -> None:
         self._fetcher = fetcher
         self._risk = risk
@@ -162,7 +160,7 @@ class ExecutionEngine:
 
         try:
             while trade.state not in (TradeState.CLOSED, TradeState.ERROR):
-                await asyncio.sleep(self._MONITOR_INTERVAL_SEC)
+                await asyncio.sleep(self._cfg.monitor_interval_sec)
 
                 # Get current prices from shared state
                 state = self._fetcher.state.get(symbol)

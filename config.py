@@ -72,6 +72,17 @@ class SignalConfig:
     tick_repetition_min_count: int = field(
         default_factory=lambda: _int("TICK_REPETITION_MIN_COUNT", 5)
     )
+    # Signal cooldown
+    cooldown_sec: float = field(
+        default_factory=lambda: _float("SIGNAL_COOLDOWN_SEC", 2.0)
+    )
+    # Order book staleness thresholds
+    binance_book_max_stale_ms: float = field(
+        default_factory=lambda: _float("BINANCE_BOOK_MAX_STALE_MS", 500.0)
+    )
+    weex_book_max_stale_ms: float = field(
+        default_factory=lambda: _float("WEEX_BOOK_MAX_STALE_MS", 1000.0)
+    )
 
 
 @dataclass(frozen=True)
@@ -97,6 +108,9 @@ class RiskConfig:
     )
     max_trade_duration_sec: int = field(
         default_factory=lambda: _int("MAX_TRADE_DURATION_SEC", 30)
+    )
+    monitor_interval_sec: float = field(
+        default_factory=lambda: _float("MONITOR_INTERVAL_SEC", 0.1)
     )
 
 

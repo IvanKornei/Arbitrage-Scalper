@@ -150,7 +150,6 @@ class SignalGenerator:
         }
         self._signal_callbacks = []
         self._cooldown: Dict[str, float] = {}   # symbol → last signal ts
-        self._COOLDOWN_SEC = 2.0                # minimum gap between signals per symbol
         self._diag = DiagLogger()
 
         # Wire DataFetcher
@@ -178,7 +177,7 @@ class SignalGenerator:
         t0 = time.perf_counter()
 
         # Cooldown guard
-        if time.time() - self._cooldown.get(symbol, 0) < self._COOLDOWN_SEC:
+        if time.time() - self._cooldown.get(symbol, 0) < self._cfg.cooldown_sec:
             return
 
         result = self._evaluate(symbol, binance_ob, weex_ob)
@@ -199,9 +198,9 @@ class SignalGenerator:
         metrics = self._metrics[symbol]
 
         # ── Guard: stale books ────────────────────────────────────────────────
-        if binance_ob.age_ms() > 500:
+        if binance_ob.age_ms() > self._cfg.binance_book_max_stale_ms:
             return NoSignal(symbol, f"Binance book stale ({binance_ob.age_ms():.0f}ms)")
-        if weex_ob.age_ms() > 1000:
+        if weex_ob.age_ms() > self._cfg.weex_book_max_stale_ms:
             return NoSignal(symbol, f"WEEX book stale ({weex_ob.age_ms():.0f}ms)")
 
         binance_mid = binance_ob.mid_price
