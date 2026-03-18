@@ -34,6 +34,7 @@ from config import CONFIG
 from core.data_fetcher import DataFetcher, MarketState
 from models.order_book import OrderBook
 from models.signal import Direction, NoSignal, Signal, SignalType
+from utils.diagnostics import DiagLogger
 from utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -178,6 +179,7 @@ class SignalGenerator:
         self._signal_callbacks = []
         self._cooldown: Dict[str, float] = {}   # symbol → last signal ts
         self._COOLDOWN_SEC = 2.0                # minimum gap between signals per symbol
+        self._diag = DiagLogger()
 
         # Wire DataFetcher
         fetcher.on_market_update(self._on_market_update)
@@ -230,58 +232,76 @@ class SignalGenerator:
         if weex_ob.age_ms() > 1000:
             return NoSignal(symbol, f"WEEX book stale ({weex_ob.age_ms():.0f}ms)")
 
-        # ── Condition 1: Price Latency ─────────────────────────────────────────
         binance_mid = binance_ob.mid_price
         weex_mid = weex_ob.mid_price
         if binance_mid is None or weex_mid is None:
             return NoSignal(symbol, "Missing mid price")
 
+        # ── Condition 1: Price Latency ─────────────────────────────────────────
         spread_pct = (binance_mid - weex_mid) / weex_mid * 100.0
         abs_spread = abs(spread_pct)
+        c1_pass = abs_spread >= self._cfg.latency_threshold_pct
 
-        if abs_spread < self._cfg.latency_threshold_pct:
-            return NoSignal(
-                symbol,
-                f"Spread {abs_spread:.4f}% < threshold {self._cfg.latency_threshold_pct}%",
-            )
-
-        direction = Direction.LONG if spread_pct > 0 else Direction.SHORT
-        latency_score = min(abs_spread / (self._cfg.latency_threshold_pct * 3), 1.0)
+        # Direction is determined by the spread sign regardless of c1
+        direction = Direction.LONG if spread_pct >= 0 else Direction.SHORT
+        latency_score = min(abs_spread / (self._cfg.latency_threshold_pct * 3), 1.0) if c1_pass else 0.0
 
         # ── Condition 2: Volume Injection ─────────────────────────────────────
         avg_vol = metrics.rolling_avg_volume
         if avg_vol == 0:
+            # No volume history yet – log and bail early (nothing useful to record)
             return NoSignal(symbol, "Insufficient volume history")
 
         dir_vol = metrics.directional_volume(direction, last_n=5)
-        volume_ratio = dir_vol / avg_vol if avg_vol > 0 else 0.0
-
-        if volume_ratio < self._cfg.volume_spike_multiplier:
-            return NoSignal(
-                symbol,
-                f"Vol ratio {volume_ratio:.2f}× < threshold {self._cfg.volume_spike_multiplier}×",
-            )
-
-        vol_score = min(volume_ratio / (self._cfg.volume_spike_multiplier * 2), 1.0)
+        volume_ratio = dir_vol / avg_vol
+        c2_pass = volume_ratio >= self._cfg.volume_spike_multiplier
+        vol_score = min(volume_ratio / (self._cfg.volume_spike_multiplier * 2), 1.0) if c2_pass else 0.0
 
         # ── Condition 3: Micro-structure / Bot Detection ───────────────────────
-        tick_count = metrics.tick_repetition(
-            self._cfg.tick_repetition_window, direction
+        tick_count = metrics.tick_repetition(self._cfg.tick_repetition_window, direction)
+        c3_pass = tick_count >= self._cfg.tick_repetition_min_count
+        tick_score = min(tick_count / (self._cfg.tick_repetition_min_count * 2), 1.0) if c3_pass else 0.0
+
+        # ── Confidence (only meaningful when all pass) ─────────────────────────
+        all_pass = c1_pass and c2_pass and c3_pass
+        confidence = float(np.cbrt(latency_score * vol_score * tick_score)) if all_pass else None
+
+        # ── Always log raw metrics for diagnostics ────────────────────────────
+        self._diag.record(
+            symbol=symbol,
+            direction=direction.value,
+            spread_pct=spread_pct,
+            c1_pass=c1_pass,
+            volume_ratio=volume_ratio,
+            c2_pass=c2_pass,
+            tick_count=tick_count,
+            c3_pass=c3_pass,
+            confidence=confidence,
+            binance_mid=binance_mid,
+            weex_mid=weex_mid,
         )
 
-        if tick_count < self._cfg.tick_repetition_min_count:
-            return NoSignal(
+        # ── Structured INFO log whenever a condition is partially met ──────────
+        if c1_pass or c2_pass or c3_pass:
+            log.info(
+                "[Diag] %s | spread=%.4f%%(%s) vol=%.2fx(%s) ticks=%d(%s) | all=%s conf=%s",
                 symbol,
-                f"Tick repetition {tick_count} < threshold {self._cfg.tick_repetition_min_count}",
+                abs_spread, "✓" if c1_pass else "✗",
+                volume_ratio, "✓" if c2_pass else "✗",
+                tick_count, "✓" if c3_pass else "✗",
+                "✓" if all_pass else "✗",
+                f"{confidence:.3f}" if confidence is not None else "—",
             )
 
-        tick_score = min(
-            tick_count / (self._cfg.tick_repetition_min_count * 2), 1.0
-        )
-
-        # ── All conditions met → compute confidence ───────────────────────────
-        # Geometric mean rewards only when ALL three are strong
-        confidence = float(np.cbrt(latency_score * vol_score * tick_score))
+        if not all_pass:
+            reasons = []
+            if not c1_pass:
+                reasons.append(f"spread {abs_spread:.4f}%<{self._cfg.latency_threshold_pct}%")
+            if not c2_pass:
+                reasons.append(f"vol {volume_ratio:.2f}x<{self._cfg.volume_spike_multiplier}x")
+            if not c3_pass:
+                reasons.append(f"ticks {tick_count}<{self._cfg.tick_repetition_min_count}")
+            return NoSignal(symbol, "; ".join(reasons))
 
         return Signal(
             symbol=symbol,

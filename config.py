@@ -100,6 +100,16 @@ class RiskConfig:
     )
 
 
+# ── Diagnostics ────────────────────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class DiagConfig:
+    enabled: bool = field(default_factory=lambda: _str("DIAG_ENABLED", "true").lower() == "true")
+    log_file: str = field(default_factory=lambda: _str("DIAG_LOG_FILE", "logs/diagnostics.jsonl"))
+    # Minimum seconds between diagnostic writes per symbol (throttle)
+    interval_sec: float = field(default_factory=lambda: _float("DIAG_INTERVAL_SEC", 0.5))
+
+
 # ── Top-level config singleton ─────────────────────────────────────────────────
 
 @dataclass(frozen=True)
@@ -114,6 +124,7 @@ class BotConfig:
     weex: WeexConfig = field(default_factory=WeexConfig)
     signal: SignalConfig = field(default_factory=SignalConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
+    diag: DiagConfig = field(default_factory=DiagConfig)
 
 
 # Singleton – import this everywhere
