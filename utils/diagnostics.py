@@ -16,7 +16,7 @@ Output format (one JSON object per line):
   "c1_pass": true,               # spread >= LATENCY_THRESHOLD_PCT
   "volume_ratio": 2.4,           # dir_vol / rolling_avg
   "c2_pass": false,              # volume_ratio >= VOLUME_SPIKE_MULTIPLIER
-  "tick_count": 3,               # tick repetition count
+  "tick_count": 3,               # directional tick count in TICK_REPETITION_WINDOW
   "c3_pass": false,              # tick_count >= TICK_REPETITION_MIN_COUNT
   "all_pass": false,             # all three conditions
   "confidence": null,            # geometric-mean confidence or null

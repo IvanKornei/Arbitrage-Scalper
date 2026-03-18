@@ -12,11 +12,11 @@ Condition 2 – Volume Injection  (order-flow validation)
   • Volume is directional: only buy volume counts for a LONG signal,
     only sell volume for a SHORT signal.
 
-Condition 3 – Micro-structure / Bot Detection  (tick repetition)
-  • Within the last TICK_REPETITION_WINDOW seconds on Binance, the same
-    price level has been repeatedly hit (≥ TICK_REPETITION_MIN_COUNT).
-  • This fingerprints aggressive market-making or momentum bots that
-    are pushing the price in a tight cluster, validating the move.
+Condition 3 – Directional Tick Density  (impulse confirmation)
+  • Within the last TICK_REPETITION_WINDOW seconds on Binance, the total
+    number of same-direction aggTrades reaches ≥ TICK_REPETITION_MIN_COUNT.
+  • This confirms that the price move is driven by sustained order-flow
+    (many directional hits) and not by a single outlier tick.
 
 All three conditions must be True simultaneously.  A confidence score
 [0.0 – 1.0] is computed as the geometric mean of the three sub-scores.
@@ -68,51 +68,24 @@ class SymbolMetrics:
         return float(np.mean(self._vol_window))
 
     def directional_volume(self, direction: Direction, lookback_n: int = 5) -> float:
-        """Sum of buy (for LONG) or sell (for SHORT) volumes in last N ticks."""
+        """Count of buy (LONG) or sell (SHORT) ticks in the last lookback_n entries."""
         target_side = "BUY" if direction == Direction.LONG else "SELL"
-        total = 0.0
-        for qty in list(self._vol_window)[-lookback_n:]:
-            # We track all ticks in vol_window; directional filtering is approximate
-            # (we don't store side in vol_window).  Use recent_ticks for precision.
-            pass
-        # Precise directional volume from recent_ticks
-        total = sum(
-            1.0  # qty is not stored per-tick here; count as presence
-            for _, s, _ in list(self._recent_ticks)[-lookback_n * 3:]
-            if s.upper() == target_side
-        )
-        return total
-
-    def directional_volume_qty(self, direction: Direction, lookback_n: int = 5) -> float:
-        """Actual qty sum for the target side from recent ticks."""
-        target_side = "BUY" if direction == Direction.LONG else "SELL"
-        recent = list(self._recent_ticks)
-        # Zip with vol_window is tricky; we store qty separately below
         return sum(
-            q for p, s, t in recent[-lookback_n:]
+            1.0
+            for _, s, _ in list(self._recent_ticks)[-lookback_n:]
             if s.upper() == target_side
-            for q in [1.0]  # placeholder – replaced by _vol_with_side below
         )
 
     # ── Tick repetition ───────────────────────────────────────────────────────
 
     def tick_repetition(self, window_sec: float, direction: Direction) -> int:
-        """
-        Count how many times the dominant price level (top-1 by frequency)
-        appears within the last `window_sec` seconds on the target side.
-        Returns 0 if no dominant cluster is found.
-        """
+        """Count total same-direction ticks within the last window_sec seconds."""
         now = time.time()
         target_side = "BUY" if direction == Direction.LONG else "SELL"
-        recent = [
-            price
-            for price, side, ts in self._recent_ticks
+        return sum(
+            1 for _, side, ts in self._recent_ticks
             if ts >= now - window_sec and side.upper() == target_side
-        ]
-        if not recent:
-            return 0
-        counter = Counter(recent)
-        return counter.most_common(1)[0][1]
+        )
 
 
 class SymbolMetricsV2:
@@ -143,19 +116,18 @@ class SymbolMetricsV2:
 
     def tick_repetition(self, window_sec: float, direction: Direction) -> int:
         """
-        Within window_sec, find the most repeated price (to 2 decimal places)
-        on the target side – proxy for an aggressive bot hitting a level.
+        Count total same-direction aggTrades within the last window_sec.
+        A high count confirms sustained directional order-flow (impulse move).
+        Previously this returned the most-common-price frequency, which always
+        returned 1 during price moves (every level is unique) and prevented C3
+        from ever firing. The correct metric for latency-arb is tick density.
         """
         now = time.time()
         target = "BUY" if direction == Direction.LONG else "SELL"
-        prices = [
-            round(p, 2)
-            for p, _, s, ts in self._ticks
+        return sum(
+            1 for _, _, s, ts in self._ticks
             if ts >= now - window_sec and s.upper() == target
-        ]
-        if not prices:
-            return 0
-        return Counter(prices).most_common(1)[0][1]
+        )
 
 
 class SignalGenerator:
