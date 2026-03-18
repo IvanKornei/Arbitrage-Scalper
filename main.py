@@ -39,6 +39,13 @@ Usage:
 
     # Optional: paper-trade mode (no orders sent)
     DRY_RUN=true python main.py
+
+    # Web dashboard (default port 8080)
+    WEB=true python main.py
+    WEB=true WEB_PORT=8080 python main.py
+
+    # Bot-only (no web UI)
+    python main.py
 """
 
 from __future__ import annotations
@@ -68,6 +75,9 @@ from utils.logger import get_logger, setup_logging
 log = get_logger(__name__)
 
 DRY_RUN: bool = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes")
+WEB:     bool = os.getenv("WEB", "false").lower() in ("true", "1", "yes")
+WEB_HOST: str = os.getenv("WEB_HOST", "0.0.0.0")
+WEB_PORT: int = int(os.getenv("WEB_PORT", "8080"))
 
 
 # ── Graceful shutdown ─────────────────────────────────────────────────────────
@@ -113,11 +123,25 @@ class BotRunner:
         signal_gen = SignalGenerator(self._fetcher)
 
         # Wire signal → execution (or dry-run logger)
-        if DRY_RUN:
+        dry = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes")
+        if dry:
             signal_gen.on_signal(self._dry_run_handler)
             log.warning("[DRY RUN] Signal received → logged only, no orders sent")
         else:
             signal_gen.on_signal(self._engine.on_signal)
+
+        # Push signals to web hub if available
+        if hasattr(self, "_hub") and self._hub:
+            async def _hub_signal(sig):
+                await self._hub.broadcast("signal", {
+                    "symbol":      sig.symbol,
+                    "direction":   sig.direction.value,
+                    "spread_pct":  sig.spread_pct,
+                    "volume_ratio":sig.volume_ratio,
+                    "tick_count":  sig.tick_count,
+                    "confidence":  sig.confidence,
+                })
+            signal_gen.on_signal(_hub_signal)
 
         # ── Launch all tasks ──────────────────────────────────────────────────
         feed_task = asyncio.create_task(self._fetcher.run(), name="data-feeds")
@@ -194,13 +218,40 @@ def main() -> None:
         level=CONFIG.log_level,
         log_file=CONFIG.log_file,
     )
-    runner = BotRunner()
-    try:
-        asyncio.run(runner.run())
-    except KeyboardInterrupt:
-        pass
-    finally:
-        log.info("[Main] Process exited.")
+
+    if WEB:
+        # Run web dashboard + bot together
+        from web.server import create_app
+        from aiohttp import web as aio_web
+
+        async def run_with_web() -> None:
+            app = create_app()
+            runner_http = aio_web.AppRunner(app)
+            await runner_http.setup()
+            site = aio_web.TCPSite(runner_http, WEB_HOST, WEB_PORT)
+            await site.start()
+            log.info("[Main] Dashboard → http://%s:%d", WEB_HOST, WEB_PORT)
+            # Keep alive until Ctrl+C
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                pass
+            finally:
+                await runner_http.cleanup()
+
+        try:
+            asyncio.run(run_with_web())
+        except KeyboardInterrupt:
+            pass
+    else:
+        # Headless bot only
+        runner = BotRunner()
+        try:
+            asyncio.run(runner.run())
+        except KeyboardInterrupt:
+            pass
+        finally:
+            log.info("[Main] Process exited.")
 
 
 if __name__ == "__main__":
