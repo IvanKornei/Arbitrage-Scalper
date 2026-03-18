@@ -22,7 +22,12 @@ from typing import Dict, List, Optional
 from urllib.parse import urlencode
 
 import aiohttp
-import orjson
+try:
+    import orjson as json_lib
+    def _loads(s): return json_lib.loads(s)
+except ImportError:
+    import json as json_lib
+    def _loads(s): return json_lib.loads(s)
 import websockets
 from websockets.exceptions import ConnectionClosed
 
@@ -119,7 +124,7 @@ class BinanceFuturesFeed(BaseMarketDataFeed):
     # ── Message dispatch ──────────────────────────────────────────────────────
 
     async def _handle_message(self, raw: bytes | str) -> None:
-        msg = orjson.loads(raw)
+        msg = _loads(raw)
         stream: str = msg.get("stream", "")
         data: dict = msg.get("data", msg)
 

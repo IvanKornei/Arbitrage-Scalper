@@ -19,7 +19,16 @@ from typing import List, Optional
 from urllib.parse import urlencode
 
 import aiohttp
-import orjson
+try:
+    import orjson
+    def _dumps(obj): return orjson.dumps(obj)
+    def _loads(s): return orjson.loads(s)
+    def _dumps_str(obj): return orjson.dumps(obj).decode()
+except ImportError:
+    import json as _json
+    def _dumps(obj): return _json.dumps(obj).encode()
+    def _loads(s): return _json.loads(s)
+    def _dumps_str(obj): return _json.dumps(obj)
 import websockets
 from websockets.exceptions import ConnectionClosed
 
@@ -129,13 +138,13 @@ class WeexFuturesFeed(BaseMarketDataFeed):
     async def _subscribe(self, ws: websockets.WebSocketClientProtocol) -> None:
         for sym in self.symbols:
             # Depth (order book) – WEEX uses "books5" for top-5 or "books" for full
-            await ws.send(orjson.dumps({
+            await ws.send(_dumps_str({
                 "op": "subscribe",
                 "args": [
                     {"channel": "books", "instId": sym},
                     {"channel": "trades", "instId": sym},
                 ]
-            }).decode())
+            }))
             log.debug("[WEEX] Subscribed to books+trades for %s", sym)
 
     async def _heartbeat(self, ws: websockets.WebSocketClientProtocol) -> None:
@@ -152,7 +161,7 @@ class WeexFuturesFeed(BaseMarketDataFeed):
     async def _handle_message(self, raw: bytes | str) -> None:
         if raw == '{"op":"pong"}' or raw == b'{"op":"pong"}':
             return
-        msg = orjson.loads(raw)
+        msg = _loads(raw)
 
         # WEEX pushes: {"arg": {"channel": "books", "instId": "BTCUSDT"}, "data": [...]}
         arg = msg.get("arg", {})
@@ -228,7 +237,7 @@ class WeexExecutionClient(BaseExecutionClient):
         return self._session
 
     async def _post(self, path: str, body: dict) -> dict:
-        body_str = orjson.dumps(body).decode()
+        body_str = _dumps_str(body)
         hdrs = _headers(
             self._cfg.api_key,
             self._cfg.api_secret,
