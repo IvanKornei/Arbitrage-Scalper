@@ -348,13 +348,17 @@ class PolymarketClient:
             yes_price = float(yes_token.get("price", 0) or 0)
             no_price  = float(no_token.get("price", 0) or 0)
 
+            # Gamma API uses camelCase "tokenId"; fall back to snake_case
+            def _token_id(t: dict) -> str:
+                return t.get("token_id") or t.get("tokenId") or ""
+
             return PolyMarket(
                 condition_id  = condition_id,
                 question      = m.get("question", ""),
                 description   = m.get("description", ""),
                 end_date_iso  = m.get("endDate") or m.get("end_date_iso", ""),
-                yes_token_id  = yes_token.get("token_id", ""),
-                no_token_id   = no_token.get("token_id", ""),
+                yes_token_id  = _token_id(yes_token),
+                no_token_id   = _token_id(no_token),
                 yes_price     = yes_price,
                 no_price      = no_price,
                 volume_24h    = float(m.get("volume24hr", 0) or 0),

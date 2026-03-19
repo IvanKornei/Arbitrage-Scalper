@@ -27,15 +27,15 @@ log = get_logger(__name__)
 
 @dataclass
 class ScanConfig:
-    min_volume_24h: float = 100.0           # USD – filter out low-activity markets
-    min_liquidity: float = 50.0             # USD – filter out illiquid markets
+    min_volume_24h: float = 0.0             # USD – minimum 24h volume (0 = disabled)
+    min_liquidity: float = 0.0             # USD – minimum liquidity (0 = disabled)
     max_markets: int = 20                   # markets to return per scan
     excluded_categories: Set[str] = field(
-        default_factory=lambda: set()       # e.g. {"sports"} to exclude
+        default_factory=lambda: set()
     )
-    price_deadzone_low: float = 0.02        # skip if YES price < 2% (near-resolved)
-    price_deadzone_high: float = 0.98       # skip if YES price > 98%
-    max_days_to_end: Optional[int] = None   # skip markets ending further than N days out
+    price_deadzone_low: float = 0.01        # skip if YES price < 1%
+    price_deadzone_high: float = 0.99       # skip if YES price > 99%
+    max_days_to_end: Optional[int] = None   # None = no cap
 
 
 class MarketScanner:
