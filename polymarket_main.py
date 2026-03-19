@@ -6,13 +6,13 @@ Usage:
     python polymarket_main.py
 
     # Live trading (requires wallet keys in .env)
-    DRY_RUN=false python polymarket_main.py
+    POLY_DRY_RUN=false python polymarket_main.py
 
     # Custom MiroFish URL
     MIROFISH_URL=http://localhost:5001 python polymarket_main.py
 
 Environment variables (see .env.example for full list):
-    DRY_RUN              true|false (default: true)
+    POLY_DRY_RUN              true|false (default: true)
     POLY_PRIVATE_KEY     Polygon wallet private key (0x...)
     POLY_API_KEY         Polymarket CLOB API key
     POLY_API_SECRET      Polymarket CLOB API secret
@@ -88,7 +88,7 @@ def build_config() -> AgentConfig:
         scan_interval_sec   = _float("POLY_SCAN_INTERVAL",     1800.0),
         price_refresh       = True,
         scan_config         = scan_cfg,
-        dry_run             = _bool ("DRY_RUN",                True),
+        dry_run             = _bool ("POLY_DRY_RUN",                True),
     )
 
 

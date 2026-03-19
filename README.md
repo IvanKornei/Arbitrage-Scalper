@@ -58,7 +58,7 @@ cp .env.example .env
 # Заполни WEEX_API_KEY, WEEX_API_SECRET, WEEX_PASSPHRASE
 
 # Paper trade (без реальных ордеров)
-DRY_RUN=true python main.py
+SCALPER_DRY_RUN=true python main.py
 
 # Live торговля
 python main.py
@@ -79,7 +79,7 @@ WEB=true python main.py
 | `VOLUME_SPIKE_MULTIPLIER` | `3.0` | Объём должен быть N× среднего |
 | `TRAILING_STOP_PCT` | `0.12` | Трейлинг стоп % |
 | `MAX_TRADE_DURATION_SEC` | `30` | Максимальная длина сделки |
-| `DRY_RUN` | `false` | `true` = только логи |
+| `SCALPER_DRY_RUN` | `false` | `true` = только логи |
 
 ### Бэктест
 
@@ -187,17 +187,17 @@ cp .env.example .env
 # Заполни: POLY_PRIVATE_KEY, POLY_API_*, MIROFISH_URL, LLM_*, ZEP_API_KEY
 
 # Тест (без реальных ставок)
-DRY_RUN=true python polymarket_main.py
+POLY_DRY_RUN=true python polymarket_main.py
 
 # Live торговля
-DRY_RUN=false python polymarket_main.py
+POLY_DRY_RUN=false python polymarket_main.py
 ```
 
 ### Конфигурация
 
 | Переменная | По умолчанию | Описание |
 |-----------|-------------|---------|
-| `DRY_RUN` | `true` | `true` = только логи, без реальных ставок |
+| `POLY_DRY_RUN` | `true` | `true` = только логи, без реальных ставок |
 | `POLY_PRIVATE_KEY` | — | Приватный ключ Polygon кошелька (`0x...`) |
 | `POLY_API_KEY` | — | CLOB API key |
 | `POLY_API_SECRET` | — | CLOB API secret |

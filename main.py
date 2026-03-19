@@ -38,7 +38,7 @@ Usage:
     python main.py
 
     # Optional: paper-trade mode (no orders sent)
-    DRY_RUN=true python main.py
+    SCALPER_DRY_RUN=true python main.py
 
     # Web dashboard (default port 8080)
     WEB=true python main.py
@@ -74,7 +74,7 @@ from utils.logger import get_logger, setup_logging
 
 log = get_logger(__name__)
 
-DRY_RUN: bool = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes")
+DRY_RUN: bool = os.getenv("SCALPER_DRY_RUN", "false").lower() in ("true", "1", "yes")
 WEB:     bool = os.getenv("WEB", "false").lower() in ("true", "1", "yes")
 WEB_HOST: str = os.getenv("WEB_HOST", "0.0.0.0")
 WEB_PORT: int = int(os.getenv("WEB_PORT", "8080"))
@@ -123,7 +123,7 @@ class BotRunner:
         signal_gen = SignalGenerator(self._fetcher)
 
         # Wire signal → execution (or dry-run logger)
-        dry = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes")
+        dry = os.getenv("SCALPER_DRY_RUN", "false").lower() in ("true", "1", "yes")
         if dry:
             signal_gen.on_signal(self._dry_run_handler)
             log.warning("[DRY RUN] Signal received → logged only, no orders sent")
