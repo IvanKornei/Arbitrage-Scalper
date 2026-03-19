@@ -139,6 +139,7 @@ class PolymarketClient:
             key=self._private_key,
             chain_id=self._chain_id,
             creds=creds,
+            signature_type=2,   # POLY_PROXY – matches Polymarket web-app proxy wallet
         )
         return self._clob_client
 
