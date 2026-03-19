@@ -329,44 +329,44 @@ class PolymarketClient:
     # ── Helper: parse Gamma API market ────────────────────────────────────────
 
     @staticmethod
-    def _parse_market(m: Dict[str, Any], _logged: list = [False]) -> Optional[PolyMarket]:
+    def _parse_market(m: Dict[str, Any]) -> Optional[PolyMarket]:
         """Parse a raw Gamma API market dict into a PolyMarket dataclass."""
+        import json as _json
+
+        def _parse_json_field(v):
+            """Gamma API returns some list fields as JSON strings."""
+            if isinstance(v, str):
+                try:
+                    return _json.loads(v)
+                except Exception:
+                    return []
+            return v or []
+
         try:
             condition_id = m.get("conditionId") or m.get("condition_id", "")
             if not condition_id:
                 return None
 
-            # Log raw structure of first market to debug field names
-            if not _logged[0]:
-                _logged[0] = True
-                import json as _json
-                log.info("[Poly] RAW first market keys: %s", list(m.keys()))
-                tokens_raw = m.get("tokens", m.get("clobTokenIds", "MISSING"))
-                log.info("[Poly] RAW tokens field: %s", _json.dumps(tokens_raw)[:500])
+            # token IDs: 'clobTokenIds' or 'tokens' – both are JSON-encoded strings
+            token_ids = _parse_json_field(m.get("clobTokenIds") or m.get("tokens", "[]"))
+            outcomes  = _parse_json_field(m.get("outcomes", '["Yes","No"]'))
+            prices    = _parse_json_field(m.get("outcomePrices", '["0.5","0.5"]'))
 
-            # Token IDs – stored in 'tokens' list
-            tokens = m.get("tokens", [])
-            yes_token = next(
-                (t for t in tokens if t.get("outcome", "").upper() == "YES"), {}
-            )
-            no_token  = next(
-                (t for t in tokens if t.get("outcome", "").upper() == "NO"), {}
-            )
+            yes_idx = next((i for i, o in enumerate(outcomes) if str(o).lower() == "yes"), 0)
+            no_idx  = next((i for i, o in enumerate(outcomes) if str(o).lower() == "no"),  1)
 
-            yes_price = float(yes_token.get("price", 0) or 0)
-            no_price  = float(no_token.get("price", 0) or 0)
-
-            # Try all known field name variants for token ID
-            def _token_id(t: dict) -> str:
-                return t.get("token_id") or t.get("tokenId") or t.get("id") or ""
+            yes_token_id = str(token_ids[yes_idx]) if yes_idx < len(token_ids) else ""
+            no_token_id  = str(token_ids[no_idx])  if no_idx  < len(token_ids) else ""
+            yes_price    = float(prices[yes_idx])   if yes_idx < len(prices)    else 0.5
+            no_price     = float(prices[no_idx])    if no_idx  < len(prices)    else 0.5
 
             return PolyMarket(
                 condition_id  = condition_id,
                 question      = m.get("question", ""),
                 description   = m.get("description", ""),
-                end_date_iso  = m.get("endDate") or m.get("end_date_iso", ""),
-                yes_token_id  = _token_id(yes_token),
-                no_token_id   = _token_id(no_token),
+                end_date_iso  = m.get("endDateIso") or m.get("endDate") or m.get("end_date_iso", ""),
+                yes_token_id  = yes_token_id,
+                no_token_id   = no_token_id,
                 yes_price     = yes_price,
                 no_price      = no_price,
                 volume_24h    = float(m.get("volume24hr", 0) or 0),
