@@ -175,13 +175,13 @@ def exec_safe_approve(spender_addr: str, spender_label: str) -> bool:
         safe_nonce,
     ).call()
 
-    # Sign the hash (EOA signs the Safe tx hash directly, v += 4 for Safe compat)
-    account = Account.from_key(PRIVATE_KEY)
-    sig = account.signHash(tx_hash)
-    # Safe expects r+s+v where v is 27 or 28
+    # Sign with eth_sign prefix (web3.py v7 API).
+    # Gnosis Safe: if v > 30 it strips 4 and verifies against eth-prefixed hash.
+    msg = encode_defunct(primitive=bytes(tx_hash))
+    sig = Account.sign_message(msg, private_key=PRIVATE_KEY)
     r = sig.r.to_bytes(32, "big")
     s = sig.s.to_bytes(32, "big")
-    v = bytes([sig.v])
+    v = bytes([sig.v + 4])   # 27+4=31 or 28+4=32 → Safe uses eth_sign path
     signatures = r + s + v
 
     print(f"\nApproving {spender_label}...")
