@@ -76,6 +76,7 @@ def build_config() -> AgentConfig:
         max_markets         = _int  ("POLY_MAX_SCAN_MARKETS",    20),
         price_deadzone_low  = _float("POLY_PRICE_DEADZONE_LOW",  0.02),
         price_deadzone_high = _float("POLY_PRICE_DEADZONE_HIGH", 0.98),
+        max_days_to_end     = _int  ("POLY_MAX_DAYS_TO_END",     30),
     )
     return AgentConfig(
         mirofish_url        = _str  ("MIROFISH_URL",          "http://localhost:5001"),
