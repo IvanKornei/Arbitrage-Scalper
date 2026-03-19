@@ -230,8 +230,13 @@ class PolymarketClient:
             clob = self._get_clob_client()
             params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
             result = await self._run_sync(clob.get_balance_allowance, params)
-            usdc = result.get("balance", {}).get("USDC", 0)
-            return float(usdc)
+            if isinstance(result, dict):
+                raw = result.get("balance", "0")
+            elif isinstance(result, (int, float)):
+                raw = result
+            else:
+                raw = result  # string – raw micro-USDC value
+            return float(raw) / 1_000_000
         except Exception as exc:
             log.error("[Poly] get_balance error: %s", exc)
             return 0.0
