@@ -27,13 +27,27 @@ def main() -> None:
         print("ERROR: Set POLY_PRIVATE_KEY in .env first", file=sys.stderr)
         sys.exit(1)
 
+    funder = os.getenv("POLY_FUNDER_ADDRESS", "")
+
     try:
         from py_clob_client.client import ClobClient
     except ImportError:
         print("ERROR: pip install py-clob-client", file=sys.stderr)
         sys.exit(1)
 
-    client = ClobClient(host=CLOB_HOST, key=private_key, chain_id=CHAIN_ID)
+    if funder:
+        print(f"Using proxy wallet (funder): {funder}")
+        client = ClobClient(
+            host=CLOB_HOST,
+            key=private_key,
+            chain_id=CHAIN_ID,
+            signature_type=2,
+            funder=funder,
+        )
+    else:
+        print("No POLY_FUNDER_ADDRESS found, using EOA signing (signature_type=0)")
+        client = ClobClient(host=CLOB_HOST, key=private_key, chain_id=CHAIN_ID)
+
     creds  = client.create_or_derive_api_creds()
 
     print("\n── Polymarket CLOB Credentials ─────────────────────────────")
