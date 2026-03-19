@@ -38,7 +38,16 @@ print(f"Proxy wallet:  {FUNDER or '(not set)'}")
 # CTF Exchange contract on Polygon mainnet
 CTF_EXCHANGE     = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
 NEG_RISK_ADAPTER = "0xC5d563A36AE78145C45a50134d48A1215220f80a"
-POLYGON_RPC      = "https://polygon-rpc.com"
+
+POLYGON_RPCS = [
+    "https://polygon-rpc.com",
+    "https://rpc-mainnet.matic.network",
+    "https://rpc-mainnet.maticvigil.com",
+    "https://matic-mainnet.chainstacklabs.com",
+    "https://polygon.llamarpc.com",
+    "https://1rpc.io/matic",
+    "https://polygon-bor-rpc.publicnode.com",
+]
 
 GET_SAFE_ADDRESS_ABI = [{
     "inputs": [{"internalType": "address", "name": "_addr", "type": "address"}],
@@ -48,15 +57,23 @@ GET_SAFE_ADDRESS_ABI = [{
     "type": "function",
 }]
 
-print(f"\nConnecting to Polygon RPC: {POLYGON_RPC}")
-try:
-    w3 = Web3(Web3.HTTPProvider(POLYGON_RPC, request_kwargs={"timeout": 15}))
-    if not w3.is_connected():
-        print("  ERROR: Cannot connect to Polygon RPC")
-        sys.exit(1)
-    print(f"  Connected. Block: {w3.eth.block_number}")
-except Exception as e:
-    print(f"  ERROR: {e}")
+w3 = None
+for rpc in POLYGON_RPCS:
+    print(f"\nTrying RPC: {rpc}")
+    try:
+        candidate = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 10}))
+        if candidate.is_connected():
+            block = candidate.eth.block_number
+            print(f"  Connected. Block: {block}")
+            w3 = candidate
+            break
+        else:
+            print("  Not connected.")
+    except Exception as e:
+        print(f"  Error: {e}")
+
+if w3 is None:
+    print("\nERROR: Cannot reach any Polygon RPC. Check your internet connection.")
     sys.exit(1)
 
 print(f"\nChecking CTF Exchange Safe Factory: {CTF_EXCHANGE}")
