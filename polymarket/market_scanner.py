@@ -45,7 +45,7 @@ class MarketScanner:
         self._client = client
         self._cfg = config
 
-    async def scan(self, pages: int = 3) -> List[PolyMarket]:
+    async def scan(self, pages: int = 30) -> List[PolyMarket]:
         """
         Fetch and filter markets.
 

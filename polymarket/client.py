@@ -329,12 +329,20 @@ class PolymarketClient:
     # ── Helper: parse Gamma API market ────────────────────────────────────────
 
     @staticmethod
-    def _parse_market(m: Dict[str, Any]) -> Optional[PolyMarket]:
+    def _parse_market(m: Dict[str, Any], _logged: list = [False]) -> Optional[PolyMarket]:
         """Parse a raw Gamma API market dict into a PolyMarket dataclass."""
         try:
             condition_id = m.get("conditionId") or m.get("condition_id", "")
             if not condition_id:
                 return None
+
+            # Log raw structure of first market to debug field names
+            if not _logged[0]:
+                _logged[0] = True
+                import json as _json
+                log.info("[Poly] RAW first market keys: %s", list(m.keys()))
+                tokens_raw = m.get("tokens", m.get("clobTokenIds", "MISSING"))
+                log.info("[Poly] RAW tokens field: %s", _json.dumps(tokens_raw)[:500])
 
             # Token IDs – stored in 'tokens' list
             tokens = m.get("tokens", [])
@@ -348,9 +356,9 @@ class PolymarketClient:
             yes_price = float(yes_token.get("price", 0) or 0)
             no_price  = float(no_token.get("price", 0) or 0)
 
-            # Gamma API uses camelCase "tokenId"; fall back to snake_case
+            # Try all known field name variants for token ID
             def _token_id(t: dict) -> str:
-                return t.get("token_id") or t.get("tokenId") or ""
+                return t.get("token_id") or t.get("tokenId") or t.get("id") or ""
 
             return PolyMarket(
                 condition_id  = condition_id,
