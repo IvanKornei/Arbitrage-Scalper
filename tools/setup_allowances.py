@@ -39,7 +39,7 @@ if FUNDER:
         key=PRIVATE_KEY,
         chain_id=137,
         creds=creds,
-        signature_type=1,  # POLY_PROXY (1=proxy wallet, 2=Gnosis Safe)
+        signature_type=2,  # POLY_GNOSIS_SAFE
         funder=FUNDER,
     )
 else:

@@ -39,9 +39,9 @@ try:
     if FUNDER:
         client = ClobClient(
             host=CLOB_HOST, key=PRIVATE_KEY, chain_id=CHAIN_ID,
-            creds=creds, signature_type=1, funder=FUNDER,
+            creds=creds, signature_type=2, funder=FUNDER,
         )
-        print(f"  OK: signature_type=1 (POLY_PROXY), funder={FUNDER}")
+        print(f"  OK: signature_type=2 (POLY_GNOSIS_SAFE), funder={FUNDER}")
     else:
         client = ClobClient(
             host=CLOB_HOST, key=PRIVATE_KEY, chain_id=CHAIN_ID,
