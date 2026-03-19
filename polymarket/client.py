@@ -138,8 +138,10 @@ class PolymarketClient:
 
         if self._funder:
             # Proxy-wallet mode: EOA signs on behalf of the proxy wallet
+            # signature_type=1 = POLY_PROXY (Polymarket proxy wallet)
+            # signature_type=2 = POLY_GNOSIS_SAFE (Gnosis Safe multisig)
             log.info(
-                "[Poly] Using proxy wallet (signature_type=2). "
+                "[Poly] Using proxy wallet (signature_type=1 POLY_PROXY). "
                 "EOA signer, funder=%s", self._funder,
             )
             client = ClobClient(
@@ -147,7 +149,7 @@ class PolymarketClient:
                 key=self._private_key,
                 chain_id=self._chain_id,
                 creds=creds,
-                signature_type=2,
+                signature_type=1,
                 funder=self._funder,
             )
         else:

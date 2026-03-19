@@ -41,7 +41,7 @@ def main() -> None:
             host=CLOB_HOST,
             key=private_key,
             chain_id=CHAIN_ID,
-            signature_type=2,
+            signature_type=1,  # POLY_PROXY (1=proxy wallet, 2=Gnosis Safe)
             funder=funder,
         )
     else:
