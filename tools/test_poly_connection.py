@@ -111,9 +111,10 @@ if real_token:
         args = MarketOrderArgs(token_id=real_token, amount=1.0, side=BUY)
         signed_order = client.create_market_order(args)
         print(f"  OK: Order signed successfully!")
-        print(f"  maker:         {signed_order.maker}")
-        print(f"  signatureType: {signed_order.signatureType}")
-        print(f"  sig prefix:    {signed_order.signature[:10]}...")
+        attrs = vars(signed_order) if hasattr(signed_order, '__dict__') else {}
+        for k, v in attrs.items():
+            val = str(v)
+            print(f"  {k}: {val[:60]}{'...' if len(val) > 60 else ''}")
         print()
         print("  AUTH IS WORKING. Bot can place real orders.")
     except Exception as e:
