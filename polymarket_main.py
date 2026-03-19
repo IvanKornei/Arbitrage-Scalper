@@ -99,6 +99,7 @@ def build_client() -> PolymarketClient:
         api_key        = _str("POLY_API_KEY"),
         api_secret     = _str("POLY_API_SECRET"),
         api_passphrase = _str("POLY_API_PASSPHRASE"),
+        funder         = _str("POLY_FUNDER_ADDRESS"),  # proxy wallet; auto-resolved if empty
     )
 
 

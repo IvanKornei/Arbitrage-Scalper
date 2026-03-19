@@ -43,9 +43,9 @@ class MiroFishClient:
     # ── Session lifecycle ─────────────────────────────────────────────────────
 
     async def __aenter__(self) -> "MiroFishClient":
+        # NOTE: do NOT set Content-Type globally – file uploads need multipart
         self._session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=60),
-            headers={"Content-Type": "application/json"},
         )
         return self
 

@@ -86,6 +86,7 @@ class PolymarketClient:
         api_passphrase: str = "",
         clob_host: str = CLOB_HOST,
         chain_id: int = CHAIN_ID,
+        funder: str = "",
     ) -> None:
         self._private_key    = private_key
         self._api_key        = api_key
@@ -93,6 +94,7 @@ class PolymarketClient:
         self._api_passphrase = api_passphrase
         self._clob_host      = clob_host
         self._chain_id       = chain_id
+        self._funder         = funder   # proxy wallet address (auto-resolved if empty)
         self._session: Optional[aiohttp.ClientSession] = None
         self._clob_client: Any = None   # py_clob_client.ClobClient (lazy)
 
@@ -102,7 +104,28 @@ class PolymarketClient:
         self._session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=30),
         )
+        if not self._funder and self._private_key:
+            self._funder = await self._resolve_funder()
+            if self._funder:
+                log.info("[Poly] Proxy wallet (funder): %s", self._funder)
+            else:
+                log.warning("[Poly] Could not resolve proxy wallet – orders may fail")
         return self
+
+    async def _resolve_funder(self) -> str:
+        """Fetch the proxy wallet address for this private key from the CLOB API."""
+        try:
+            from eth_account import Account
+            eoa = Account.from_key(self._private_key).address
+            url = f"{self._clob_host}/proxy-wallets"
+            async with self._session.get(url, params={"signer": eoa}) as resp:
+                data = await resp.json(content_type=None)
+                wallets = data if isinstance(data, list) else data.get("proxy_wallets", [])
+                if wallets:
+                    return str(wallets[0])
+        except Exception as exc:
+            log.debug("[Poly] _resolve_funder error: %s", exc)
+        return ""
 
     async def __aexit__(self, *_: Any) -> None:
         if self._session:
@@ -134,13 +157,16 @@ class PolymarketClient:
             api_secret=self._api_secret,
             api_passphrase=self._api_passphrase,
         )
-        self._clob_client = ClobClient(
+        kwargs: Dict[str, Any] = dict(
             host=self._clob_host,
             key=self._private_key,
             chain_id=self._chain_id,
             creds=creds,
             signature_type=2,   # POLY_PROXY – matches Polymarket web-app proxy wallet
         )
+        if self._funder:
+            kwargs["funder"] = self._funder
+        self._clob_client = ClobClient(**kwargs)
         return self._clob_client
 
     async def _run_sync(self, fn, *args, **kwargs):
