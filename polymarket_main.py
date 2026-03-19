@@ -43,7 +43,7 @@ except ImportError:
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 from agents.polymarket_agent import AgentConfig, PolymarketAgent
 from polymarket.client import PolymarketClient
@@ -94,12 +94,15 @@ def build_config() -> AgentConfig:
 
 
 def build_client() -> PolymarketClient:
+    funder = _str("POLY_FUNDER_ADDRESS")
+    import logging
+    logging.getLogger(__name__).info("[Config] POLY_FUNDER_ADDRESS=%r", funder)
     return PolymarketClient(
         private_key    = _str("POLY_PRIVATE_KEY"),
         api_key        = _str("POLY_API_KEY"),
         api_secret     = _str("POLY_API_SECRET"),
         api_passphrase = _str("POLY_API_PASSPHRASE"),
-        funder         = _str("POLY_FUNDER_ADDRESS"),  # proxy wallet; auto-resolved if empty
+        funder         = funder,
     )
 
 
