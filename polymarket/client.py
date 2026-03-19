@@ -226,8 +226,10 @@ class PolymarketClient:
     async def get_balance_usdc(self) -> float:
         """Return USDC balance available for trading."""
         try:
+            from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
             clob = self._get_clob_client()
-            result = await self._run_sync(clob.get_balance_allowance)
+            params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
+            result = await self._run_sync(clob.get_balance_allowance, params)
             usdc = result.get("balance", {}).get("USDC", 0)
             return float(usdc)
         except Exception as exc:

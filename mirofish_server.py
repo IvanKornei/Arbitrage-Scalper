@@ -14,9 +14,9 @@ from __future__ import annotations
 import uuid
 from typing import Dict, Any
 
-import anthropic
+import os
+import requests
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
 import uvicorn
 
 app = FastAPI(title="MiroFish Prediction Server")
@@ -25,7 +25,22 @@ app = FastAPI(title="MiroFish Prediction Server")
 _projects: Dict[str, Dict[str, Any]] = {}  # project_id → {title, seed, report}
 _tasks: Dict[str, Dict[str, str]] = {}      # task_id → {status, result_key, project_id}
 
-client = anthropic.Anthropic()
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+GEMINI_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models"
+    "/gemini-2.0-flash:generateContent"
+)
+
+
+def _gemini_predict(prompt: str) -> str:
+    resp = requests.post(
+        GEMINI_URL,
+        params={"key": GEMINI_API_KEY},
+        json={"contents": [{"parts": [{"text": prompt}]}]},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -120,12 +135,7 @@ async def generate_report(project_id: str):
     )
 
     try:
-        message = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        report_text = message.content[0].text
+        report_text = _gemini_predict(prompt)
     except Exception as e:
         report_text = f"Analysis unavailable. Probability: 50%\nError: {e}"
 
