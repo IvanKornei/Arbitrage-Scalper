@@ -25,7 +25,9 @@ app = FastAPI(title="MiroFish Prediction Server")
 _projects: Dict[str, Dict[str, Any]] = {}  # project_id → {title, seed, report}
 _tasks: Dict[str, Dict[str, str]] = {}      # task_id → {status, result_key, project_id}
 
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+if not GEMINI_API_KEY:
+    raise RuntimeError("GEMINI_API_KEY environment variable is not set")
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models"
     "/gemini-2.0-flash:generateContent"
