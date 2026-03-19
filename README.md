@@ -1,18 +1,33 @@
-# Arbitrage Scalper
+# Trading Bots Monorepo
 
-High-frequency crypto futures arbitrage bot that exploits price latency between **Binance** (price leader) and **WEEX** (lagging exchange).
+Два независимых торговых бота в одном репозитории.
 
-## How it works
+---
 
-Binance price moves propagate to WEEX with a small delay. The bot monitors both order books simultaneously, detects the spread, and enters a position on WEEX before it catches up.
+## Продукты
 
-A signal fires only when **all three conditions are met at the same time**:
+| Бот | Рынок | Запуск |
+|-----|-------|--------|
+| [Arbitrage Scalper](#arbitrage-scalper) | Crypto Futures (Binance → WEEX) | `python main.py` |
+| [Polymarket AI Agent](#polymarket-ai-agent) | Prediction Markets (Polymarket) | `python polymarket_main.py` |
 
-| # | Condition | What it checks |
-|---|-----------|---------------|
-| 1 | **Price Latency** | Binance–WEEX mid-price spread ≥ threshold |
-| 2 | **Volume Spike** | Aggressor volume on Binance ≥ N× rolling average |
-| 3 | **Tick Density** | Sustained directional aggTrades within the last T seconds |
+---
+
+## Arbitrage Scalper
+
+High-frequency crypto futures арбитраж между **Binance** (price leader) и **WEEX** (lagging exchange).
+
+### Как работает
+
+Цена на Binance движется с небольшой задержкой на WEEX. Бот мониторит оба ордербука одновременно, детектирует спред и входит в позицию на WEEX до того, как она выравнивается.
+
+Сигнал срабатывает только когда **три условия выполнены одновременно**:
+
+| # | Условие | Что проверяет |
+|---|---------|--------------|
+| 1 | **Price Latency** | Binance–WEEX спред ≥ порог |
+| 2 | **Volume Spike** | Объём на Binance ≥ N× скользящего среднего |
+| 3 | **Tick Density** | Устойчивые направленные aggTrades за последние T секунд |
 
 ```
 DataFetcher
@@ -29,113 +44,223 @@ ExecutionEngine  ◄──── RiskManager (sizing + stops)
   WEEX REST API  (market open → trailing SL → market close)
 ```
 
-## Requirements
+### Требования
 
 - Python 3.11+
-- WEEX Futures account with API key (execution)
-- Binance Futures account (optional, public WebSocket is free)
+- WEEX Futures аккаунт с API ключом (исполнение)
+- Binance Futures аккаунт (опционально, публичный WebSocket бесплатный)
 
-## Setup
+### Запуск
 
 ```bash
-# 1. Clone
-git clone https://github.com/IvanKornei/Arbitrage-Scalper.git
-cd Arbitrage-Scalper
-
-# 2. Install dependencies
 pip install -r requirements.txt
-
-# 3. Configure
 cp .env.example .env
-# Edit .env — fill in WEEX_API_KEY, WEEX_API_SECRET, WEEX_PASSPHRASE
-```
+# Заполни WEEX_API_KEY, WEEX_API_SECRET, WEEX_PASSPHRASE
 
-## Running
-
-```bash
-# Paper trade (no real orders — default safe mode)
+# Paper trade (без реальных ордеров)
 DRY_RUN=true python main.py
 
-# Live trading
+# Live торговля
 python main.py
 
-# Live trading + web dashboard at http://localhost:8080
+# Live + веб-дашборд на http://localhost:8080
 WEB=true python main.py
-
-# Custom port
-WEB=true WEB_PORT=9090 python main.py
 ```
 
-## Configuration
+### Конфигурация
 
-All parameters are set via environment variables (`.env` file). See `.env.example` for the full list.
+| Переменная | По умолчанию | Описание |
+|-----------|-------------|---------|
+| `TRADING_PAIRS` | `BTCUSDT,ETHUSDT,SOLUSDT` | Торговые пары |
+| `ACCOUNT_BALANCE_USDT` | `1000.0` | Капитал бота |
+| `RISK_PER_TRADE_PCT` | `0.5` | % баланса на сделку |
+| `LEVERAGE` | `10` | Плечо |
+| `LATENCY_THRESHOLD_PCT` | `0.08` | Мин спред % для сигнала |
+| `VOLUME_SPIKE_MULTIPLIER` | `3.0` | Объём должен быть N× среднего |
+| `TRAILING_STOP_PCT` | `0.12` | Трейлинг стоп % |
+| `MAX_TRADE_DURATION_SEC` | `30` | Максимальная длина сделки |
+| `DRY_RUN` | `false` | `true` = только логи |
 
-### Key parameters
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TRADING_PAIRS` | `BTCUSDT,ETHUSDT,SOLUSDT` | Comma-separated futures symbols |
-| `ACCOUNT_BALANCE_USDT` | `1000.0` | Capital allocated to the bot |
-| `RISK_PER_TRADE_PCT` | `0.5` | % of balance risked per trade |
-| `MAX_OPEN_POSITIONS` | `3` | Max simultaneous open positions |
-| `LEVERAGE` | `10` | Futures leverage |
-| `LATENCY_THRESHOLD_PCT` | `0.08` | Min Binance–WEEX spread % to trigger |
-| `VOLUME_SPIKE_MULTIPLIER` | `3.0` | Volume must be N× the rolling average |
-| `TICK_REPETITION_WINDOW` | `1.0` | Seconds window for tick density check |
-| `TICK_REPETITION_MIN_COUNT` | `5` | Min same-direction ticks in the window |
-| `BREAKEVEN_TRIGGER_PCT` | `0.15` | Move stop to breakeven when profit ≥ X% |
-| `TRAILING_STOP_PCT` | `0.12` | Trailing stop distance % |
-| `MAX_TRADE_DURATION_SEC` | `30` | Hard time limit per trade |
-| `DRY_RUN` | `false` | `true` = log signals only, no orders |
-
-### Advanced (signal tuning)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SIGNAL_COOLDOWN_SEC` | `2.0` | Min seconds between signals per symbol |
-| `BINANCE_BOOK_MAX_STALE_MS` | `500` | Reject signal if Binance book older than N ms |
-| `WEEX_BOOK_MAX_STALE_MS` | `1000` | Reject signal if WEEX book older than N ms |
-| `VOLUME_LOOKBACK_BARS` | `20` | Rolling window size for volume average |
-
-## Backtesting
+### Бэктест
 
 ```bash
-# Run backtest on saved diagnostic logs
-python tools/backtest_signals.py
-
-# Analyse diagnostics
-python tools/analyze_diag.py
+python tools/backtest_signals.py   # Бэктест на сохранённых логах
+python tools/analyze_diag.py       # Анализ диагностики
 ```
 
-Diagnostics are written to `logs/diagnostics.jsonl` while the bot runs (controlled by `DIAG_ENABLED`, `DIAG_INTERVAL_SEC`).
-
-## Project structure
+### Структура файлов
 
 ```
-├── main.py                  Entry point
-├── config.py                All configuration (loaded from .env)
+├── main.py                  Точка входа
+├── config.py                Конфигурация (из .env)
 ├── core/
-│   ├── data_fetcher.py      WebSocket feeds aggregator
-│   ├── signal_generator.py  3-confluence signal detection
-│   ├── execution_engine.py  Order lifecycle on WEEX
-│   └── risk_manager.py      Position sizing and stop logic
+│   ├── data_fetcher.py      Агрегатор WebSocket фидов
+│   ├── signal_generator.py  3-confluence детектор сигналов
+│   ├── execution_engine.py  Жизненный цикл ордеров на WEEX
+│   └── risk_manager.py      Сайзинг позиции и стопы
 ├── exchanges/
-│   ├── binance_futures.py   Binance WS feed (price leader)
-│   └── weex_futures.py      WEEX WS feed + REST execution
+│   ├── binance_futures.py   Binance WS фид (price leader)
+│   └── weex_futures.py      WEEX WS фид + REST исполнение
 ├── models/
-│   ├── signal.py            Signal dataclass
-│   ├── trade.py             Trade / position state
-│   └── order_book.py        Order book snapshot
-├── utils/
-│   ├── logger.py            Structured logging
-│   └── diagnostics.py       Metrics collection
-├── tools/
-│   ├── backtest_signals.py  Historical backtester
-│   └── analyze_diag.py      Diagnostic log analyser
-└── web/
-    └── server.py            Optional FastAPI dashboard
+│   ├── signal.py            Датакласс Signal
+│   ├── trade.py             Состояние сделки / позиции
+│   └── order_book.py        Снимок ордербука
+└── tools/
+    ├── backtest_signals.py  Исторический бэктестер
+    └── analyze_diag.py      Анализатор диагностических логов
 ```
 
-## Risk warning
+---
 
-This bot trades real money with leverage. Always start with `DRY_RUN=true`, verify signal frequency and sizing, then go live with a small balance first.
+## Polymarket AI Agent
+
+Алгоритмический агент для [Polymarket](https://polymarket.com). Сканирует открытые рынки, использует **MiroFish** (локальный AI-сервис) для оценки вероятностей, и ставит когда математическое преимущество превышает порог.
+
+### Как работает
+
+```
+Market Scanner  ──── фильтр по объёму / ликвидности ────► Список рынков
+      │
+      ▼  (для каждого рынка не в портфеле)
+Обновить цену  (Polymarket CLOB API)
+      │
+      ▼
+MiroFish AI  ──── вопрос + описание ────► Вероятность YES
+      │
+      ▼
+Edge = наша_вероятность − рыночная_цена
+      │
+      ├── edge < порог  →  пропустить
+      │
+      └── edge ≥ порог  →  Kelly sizing  →  Поставить (CLOB API)
+```
+
+Один цикл сканирования запускается каждые 30 минут. Рынки оцениваются последовательно (MiroFish анализ занимает 2–5 минут на рынок).
+
+### Требования
+
+- Python 3.11+
+- **MiroFish** запущен локально (Docker)
+- Polymarket аккаунт с CLOB API credentials
+- LLM API ключ для MiroFish (Gemini, Qwen, Groq — есть бесплатные тиры)
+- Zep Cloud аккаунт для памяти MiroFish (бесплатный тир)
+
+### Быстрый старт
+
+#### 1. Запустить MiroFish
+
+```bash
+git clone https://github.com/IvanKornei/MiroFish.git
+cd MiroFish
+cp .env.example .env
+# Заполни: LLM_API_KEY, LLM_BASE_URL, LLM_MODEL_NAME, ZEP_API_KEY
+docker compose up -d
+
+# Проверить что работает
+curl http://localhost:5001/health  # → {"status": "ok"}
+```
+
+**Бесплатные LLM для MiroFish:**
+
+| Провайдер | Модель | Регистрация |
+|-----------|--------|------------|
+| Google Gemini | `gemini-2.0-flash` | [aistudio.google.com](https://aistudio.google.com) |
+| Alibaba Qwen | `qwen-plus` | [bailian.aliyun.com](https://bailian.aliyun.com) |
+| Groq | `llama-3.3-70b-versatile` | [console.groq.com](https://console.groq.com) |
+
+**Zep Cloud:** бесплатный аккаунт на [getzep.com](https://getzep.com)
+
+#### 2. Получить Polymarket credentials
+
+```bash
+pip install -r requirements.txt
+
+# Сгенерировать CLOB API ключи из приватного ключа кошелька
+python tools/generate_poly_creds.py
+# Выведет POLY_API_KEY, POLY_API_SECRET, POLY_API_PASSPHRASE
+```
+
+#### 3. Настроить и запустить
+
+```bash
+cp .env.example .env
+# Заполни: POLY_PRIVATE_KEY, POLY_API_*, MIROFISH_URL, LLM_*, ZEP_API_KEY
+
+# Тест (без реальных ставок)
+DRY_RUN=true python polymarket_main.py
+
+# Live торговля
+DRY_RUN=false python polymarket_main.py
+```
+
+### Конфигурация
+
+| Переменная | По умолчанию | Описание |
+|-----------|-------------|---------|
+| `DRY_RUN` | `true` | `true` = только логи, без реальных ставок |
+| `POLY_PRIVATE_KEY` | — | Приватный ключ Polygon кошелька (`0x...`) |
+| `POLY_API_KEY` | — | CLOB API key |
+| `POLY_API_SECRET` | — | CLOB API secret |
+| `POLY_API_PASSPHRASE` | — | CLOB API passphrase |
+| `MIROFISH_URL` | `http://localhost:5001` | URL MiroFish сервиса |
+| `POLY_MIN_EDGE_PCT` | `5.0` | Мин edge % для ставки |
+| `POLY_MAX_POSITIONS` | `10` | Макс одновременных позиций |
+| `POLY_SCAN_INTERVAL` | `1800` | Секунд между сканированиями |
+| `POLY_SIM_ROUNDS` | `10` | Раундов MiroFish на рынок |
+| `POLY_MIN_VOLUME` | `500` | Мин 24h объём USD |
+| `POLY_MIN_LIQUIDITY` | `200` | Мин ликвидность USD |
+| `POLY_MIN_BET_USDC` | `1.0` | Минимальный размер ставки |
+| `POLY_MAX_BET_FRACTION` | `0.05` | Макс доля банкролла на ставку |
+| `POLY_KELLY_FRACTION` | `0.25` | Kelly множитель (0.25 = quarter-Kelly) |
+| `POLY_MAX_SCAN_MARKETS` | `20` | Макс рынков на цикл |
+
+### Структура файлов
+
+```
+├── polymarket_main.py          Точка входа
+├── agents/
+│   └── polymarket_agent.py     Главный цикл: сканирование → прогноз → ставка
+├── polymarket/
+│   ├── client.py               Polymarket CLOB API клиент (EIP-712 авторизация)
+│   ├── market_scanner.py       Поиск и фильтрация рынков
+│   ├── order_manager.py        Отслеживание позиций
+│   └── kelly.py                Kelly criterion для сайзинга ставок
+├── mirofish/
+│   ├── client.py               HTTP клиент MiroFish сервиса
+│   └── predictor.py            Извлечение вероятности из AI отчёта
+├── tests/
+│   ├── test_kelly.py
+│   ├── test_market_scanner.py
+│   ├── test_mirofish_client.py
+│   ├── test_predictor.py
+│   └── test_agent_integration.py
+└── tools/
+    └── generate_poly_creds.py  Генерация CLOB API credentials
+```
+
+### Тесты
+
+```bash
+pip install -r requirements.txt pytest pytest-asyncio
+pytest tests/
+```
+
+---
+
+## Общие файлы
+
+```
+├── utils/
+│   ├── logger.py        Структурированное логирование (shared)
+│   └── diagnostics.py   Сбор метрик (shared)
+├── web/
+│   └── server.py        Веб-дашборд для Arbitrage Scalper
+├── .env.example         Все переменные окружения (оба бота)
+└── requirements.txt     Зависимости (оба бота)
+```
+
+---
+
+## Предупреждение о рисках
+
+Оба бота работают с реальными деньгами. Всегда запускай с `DRY_RUN=true` сначала, чтобы убедиться что логика работает корректно, и только потом переходи в live с небольшим балансом.
