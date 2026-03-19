@@ -15,6 +15,10 @@ import uuid
 from typing import Dict, Any
 
 import os
+
+from dotenv import load_dotenv
+load_dotenv()
+
 import requests
 from fastapi import FastAPI, UploadFile, File, HTTPException
 import uvicorn
