@@ -71,8 +71,8 @@ def _str(key: str, default: str = "") -> str:
 
 def build_config() -> AgentConfig:
     scan_cfg = ScanConfig(
-        min_volume_24h      = _float("POLY_MIN_VOLUME",         500.0),
-        min_liquidity       = _float("POLY_MIN_LIQUIDITY",      200.0),
+        min_volume_24h      = _float("POLY_MIN_VOLUME",         100.0),
+        min_liquidity       = _float("POLY_MIN_LIQUIDITY",      50.0),
         max_markets         = _int  ("POLY_MAX_SCAN_MARKETS",    20),
         price_deadzone_low  = _float("POLY_PRICE_DEADZONE_LOW",  0.02),
         price_deadzone_high = _float("POLY_PRICE_DEADZONE_HIGH", 0.98),

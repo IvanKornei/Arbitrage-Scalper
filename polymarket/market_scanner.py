@@ -27,8 +27,8 @@ log = get_logger(__name__)
 
 @dataclass
 class ScanConfig:
-    min_volume_24h: float = 500.0           # USD – filter out low-activity markets
-    min_liquidity: float = 200.0            # USD – filter out illiquid markets
+    min_volume_24h: float = 100.0           # USD – filter out low-activity markets
+    min_liquidity: float = 50.0             # USD – filter out illiquid markets
     max_markets: int = 20                   # markets to return per scan
     excluded_categories: Set[str] = field(
         default_factory=lambda: set()       # e.g. {"sports"} to exclude
@@ -77,34 +77,48 @@ class MarketScanner:
         cfg = self._cfg
         now = datetime.now(timezone.utc)
         out: List[PolyMarket] = []
+
+        c_inactive = c_no_tokens = c_price = c_volume = c_liquidity = c_category = c_days = 0
+
         for m in markets:
             # Must be active and not closed
             if not m.active or m.closed:
-                continue
+                c_inactive += 1; continue
             # Must have token IDs for trading
             if not m.yes_token_id or not m.no_token_id:
-                continue
+                c_no_tokens += 1; continue
             # Price must be in tradeable range
             p = m.yes_price
             if p < cfg.price_deadzone_low or p > cfg.price_deadzone_high:
-                continue
+                c_price += 1; continue
             # Volume & liquidity thresholds
             if m.volume_24h < cfg.min_volume_24h:
-                continue
+                c_volume += 1; continue
             if m.liquidity < cfg.min_liquidity:
-                continue
+                c_liquidity += 1; continue
             # Category filter
             cat = m.category.lower()
             if cat in {c.lower() for c in cfg.excluded_categories}:
-                continue
+                c_category += 1; continue
             # End-date cap: skip markets too far in the future
             if cfg.max_days_to_end is not None and m.end_date_iso:
                 end_dt = _parse_end_date(m.end_date_iso)
                 if end_dt is not None:
                     days_left = (end_dt - now).total_seconds() / 86_400
                     if days_left > cfg.max_days_to_end:
-                        continue
+                        c_days += 1; continue
             out.append(m)
+
+        log.info(
+            "[Scanner] Filter breakdown — inactive:%d no_tokens:%d price:%d "
+            "volume<%g:%d liquidity<%g:%d category:%d days>%s:%d → passed:%d",
+            c_inactive, c_no_tokens, c_price,
+            cfg.min_volume_24h, c_volume,
+            cfg.min_liquidity, c_liquidity,
+            c_category,
+            cfg.max_days_to_end, c_days,
+            len(out),
+        )
         return out
 
     @staticmethod
