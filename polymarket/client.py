@@ -113,18 +113,43 @@ class PolymarketClient:
         return self
 
     async def _resolve_funder(self) -> str:
-        """Fetch the proxy wallet address for this private key from the CLOB API."""
+        """Fetch the proxy wallet address from the CLOB API using py_clob_client's httpx."""
         try:
             from eth_account import Account
+            from py_clob_client.signer import Signer
+            from py_clob_client.headers.headers import create_level_2_headers
+            from py_clob_client.clob_types import ApiCreds, RequestArgs
+            from py_clob_client.http_helpers.helpers import get as clob_get
+
             eoa = Account.from_key(self._private_key).address
-            url = f"{self._clob_host}/proxy-wallets"
-            async with self._session.get(url, params={"signer": eoa}) as resp:
-                data = await resp.json(content_type=None)
-                wallets = data if isinstance(data, list) else data.get("proxy_wallets", [])
-                if wallets:
-                    return str(wallets[0])
+            signer = Signer(self._private_key, chain_id=self._chain_id)
+            creds = ApiCreds(
+                api_key=self._api_key,
+                api_secret=self._api_secret,
+                api_passphrase=self._api_passphrase,
+            )
+            req_args = RequestArgs(method="GET", request_path="/proxy-wallets")
+            headers = create_level_2_headers(signer, creds, req_args)
+            url = f"{self._clob_host}/proxy-wallets?signer={eoa}"
+            data = await self._run_sync(clob_get, url, headers=headers)
+            wallets = data if isinstance(data, list) else data.get("proxy_wallets", [])
+            if wallets:
+                addr = str(wallets[0].get("proxyAddress") or wallets[0].get("address") or wallets[0])
+                if addr and addr != "0x0000000000000000000000000000000000000000":
+                    return addr
+            log.warning(
+                "[Poly] proxy-wallets returned no address: %s\n"
+                "       Set POLY_FUNDER_ADDRESS=<proxy_wallet_addr> in .env\n"
+                "       (visible in your Polymarket dashboard → wallet address)",
+                data,
+            )
         except Exception as exc:
-            log.debug("[Poly] _resolve_funder error: %s", exc)
+            log.warning(
+                "[Poly] Could not auto-resolve proxy wallet: %s\n"
+                "       Set POLY_FUNDER_ADDRESS=<proxy_wallet_addr> in .env\n"
+                "       (visible in your Polymarket dashboard → wallet address)",
+                exc,
+            )
         return ""
 
     async def __aexit__(self, *_: Any) -> None:
