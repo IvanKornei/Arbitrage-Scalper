@@ -77,26 +77,49 @@ try:
 except Exception as e:
     print(f"  FAILED: {e}")
 
-print("\nSTEP 6: Test market order (DRY RUN – not submitting)")
+print("\nSTEP 6: Fetch a real active market token_id")
+real_token = None
 try:
-    from py_clob_client.clob_types import MarketOrderArgs
-    from py_clob_client.order_builder.constants import BUY
-
-    # Use a well-known token_id for Trump 2024 win market (doesn't matter, just testing signing)
-    TEST_TOKEN = "71321045679252212594626385532706912750332728571942532289631379312455583992563"
-    args = MarketOrderArgs(token_id=TEST_TOKEN, amount=1.0, side=BUY)
-    signed_order = client.create_market_order(args)
-    print(f"  OK: Order signed successfully")
-    print(f"  maker:         {signed_order.maker}")
-    print(f"  signatureType: {signed_order.signatureType}")
-    print(f"  sig prefix:    {signed_order.signature[:10]}...")
-    print()
-    print("  >>> To actually post this order, uncomment the next block <<<")
-    # from py_clob_client.clob_types import OrderType
-    # resp = client.post_order(signed_order, OrderType.FOK)
-    # print(f"  POST result: {resp}")
+    import requests
+    resp = requests.get(
+        "https://gamma-api.polymarket.com/markets",
+        params={"active": "true", "closed": "false", "limit": 5},
+        timeout=10,
+    )
+    markets = resp.json() if isinstance(resp.json(), list) else resp.json().get("markets", [])
+    import json as _json
+    for m in markets:
+        token_ids = m.get("clobTokenIds") or m.get("tokens", "[]")
+        if isinstance(token_ids, str):
+            token_ids = _json.loads(token_ids)
+        if token_ids:
+            real_token = str(token_ids[0])
+            print(f"  Found market: {m.get('question', '')[:60]}")
+            print(f"  token_id:     {real_token}")
+            break
+    if not real_token:
+        print("  WARNING: No active markets found")
 except Exception as e:
-    print(f"  FAILED: {e}")
+    print(f"  FAILED to fetch market: {e}")
+
+print("\nSTEP 7: Test order signing with real token (DRY RUN – not submitting)")
+if real_token:
+    try:
+        from py_clob_client.clob_types import MarketOrderArgs
+        from py_clob_client.order_builder.constants import BUY
+
+        args = MarketOrderArgs(token_id=real_token, amount=1.0, side=BUY)
+        signed_order = client.create_market_order(args)
+        print(f"  OK: Order signed successfully!")
+        print(f"  maker:         {signed_order.maker}")
+        print(f"  signatureType: {signed_order.signatureType}")
+        print(f"  sig prefix:    {signed_order.signature[:10]}...")
+        print()
+        print("  AUTH IS WORKING. Bot can place real orders.")
+    except Exception as e:
+        print(f"  FAILED: {e}")
+else:
+    print("  SKIPPED: no token_id available")
 
 print("\n" + "=" * 60)
 print("Done. Fix any FAILED steps above.")
