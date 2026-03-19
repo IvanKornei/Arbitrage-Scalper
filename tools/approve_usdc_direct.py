@@ -162,26 +162,12 @@ def exec_safe_approve(spender_addr: str, spender_label: str) -> bool:
     approve_data = usdc.encode_abi("approve", args=[spender_addr, MAX_APPROVAL])
 
     safe_nonce = safe.functions.nonce().call()
+    approve_bytes = bytes.fromhex(approve_data[2:])
 
-    # Get the hash the Safe expects us to sign
-    tx_hash = safe.functions.getTransactionHash(
-        spender_addr,   # to  (we're calling USDC with spender as param... no wait)
-        0,              # value
-        b"",            # data
-        0,              # operation (CALL)
-        0,              # safeTxGas
-        0,              # baseGas
-        0,              # gasPrice
-        "0x0000000000000000000000000000000000000000",  # gasToken
-        "0x0000000000000000000000000000000000000000",  # refundReceiver
-        safe_nonce,
-    ).call()
-
-    # Actually call USDC contract, not spender directly
     tx_hash = safe.functions.getTransactionHash(
         USDC_ADDR,      # to: USDC contract
         0,              # value: 0 ETH
-        bytes.fromhex(approve_data.hex()[2:]),  # data: approve() calldata
+        approve_bytes,  # data: approve() calldata
         0,              # operation: CALL
         0, 0, 0,
         "0x0000000000000000000000000000000000000000",
@@ -203,7 +189,7 @@ def exec_safe_approve(spender_addr: str, spender_label: str) -> bool:
         tx = safe.functions.execTransaction(
             USDC_ADDR,
             0,
-            bytes.fromhex(approve_data.hex()[2:]),
+            approve_bytes,
             0, 0, 0, 0,
             "0x0000000000000000000000000000000000000000",
             "0x0000000000000000000000000000000000000000",
