@@ -8,13 +8,16 @@ Criteria applied (all configurable via PolyConfig):
   4. Volume >= min_volume_24h (ensures liquidity)
   5. Liquidity >= min_liquidity
   6. Not in excluded categories
-  7. Ranked by absolute edge potential (price closest to 0.5 = most uncertain = best for AI)
+  7. End date within max_days_to_end (optional cap)
+  8. Ranked primarily by proximity of end date (soonest first),
+     then by uncertainty and volume.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Set
+from datetime import datetime, timezone
+from typing import List, Optional, Set
 
 from polymarket.client import PolyMarket, PolymarketClient
 from utils.logger import get_logger
@@ -32,6 +35,7 @@ class ScanConfig:
     )
     price_deadzone_low: float = 0.02        # skip if YES price < 2% (near-resolved)
     price_deadzone_high: float = 0.98       # skip if YES price > 98%
+    max_days_to_end: Optional[int] = None   # skip markets ending further than N days out
 
 
 class MarketScanner:
@@ -71,6 +75,7 @@ class MarketScanner:
 
     def _filter(self, markets: List[PolyMarket]) -> List[PolyMarket]:
         cfg = self._cfg
+        now = datetime.now(timezone.utc)
         out: List[PolyMarket] = []
         for m in markets:
             # Must be active and not closed
@@ -92,26 +97,53 @@ class MarketScanner:
             cat = m.category.lower()
             if cat in {c.lower() for c in cfg.excluded_categories}:
                 continue
+            # End-date cap: skip markets too far in the future
+            if cfg.max_days_to_end is not None and m.end_date_iso:
+                end_dt = _parse_end_date(m.end_date_iso)
+                if end_dt is not None:
+                    days_left = (end_dt - now).total_seconds() / 86_400
+                    if days_left > cfg.max_days_to_end:
+                        continue
             out.append(m)
         return out
 
     @staticmethod
     def _rank(markets: List[PolyMarket]) -> List[PolyMarket]:
         """
-        Rank by:
-          1. Uncertainty (YES price closest to 0.5 → most uncertain)
-          2. Volume (higher volume = better liquidity for execution)
-        Combined score: uncertainty_score * 0.6 + norm_volume * 0.4
+        Rank by composite score (descending):
+          1. Time proximity  – markets ending sooner score higher  (weight 0.5)
+          2. Uncertainty     – YES price closest to 0.5            (weight 0.3)
+          3. Volume          – higher 24 h volume                  (weight 0.2)
+
+        Markets with no parseable end date are pushed to the bottom.
         """
         if not markets:
             return []
 
+        now = datetime.now(timezone.utc)
         max_vol = max(m.volume_24h for m in markets) or 1.0
 
+        # Collect days-to-end for normalisation
+        days_list = []
+        for m in markets:
+            if m.end_date_iso:
+                dt = _parse_end_date(m.end_date_iso)
+                if dt is not None:
+                    days_list.append(max((dt - now).total_seconds() / 86_400, 0.0))
+        max_days = max(days_list) if days_list else 1.0
+
         def score(m: PolyMarket) -> float:
-            uncertainty = 1.0 - abs(m.yes_price - 0.5) * 2  # 1 at 0.5, 0 at extremes
+            # Time score: 1.0 for soonest, 0.0 for furthest; no date → 0
+            time_score = 0.0
+            if m.end_date_iso:
+                dt = _parse_end_date(m.end_date_iso)
+                if dt is not None:
+                    days_left  = max((dt - now).total_seconds() / 86_400, 0.0)
+                    time_score = 1.0 - (days_left / max_days) if max_days > 0 else 1.0
+
+            uncertainty = 1.0 - abs(m.yes_price - 0.5) * 2
             norm_vol    = m.volume_24h / max_vol
-            return uncertainty * 0.6 + norm_vol * 0.4
+            return time_score * 0.5 + uncertainty * 0.3 + norm_vol * 0.2
 
         return sorted(markets, key=score, reverse=True)
 
@@ -136,3 +168,28 @@ class MarketScanner:
             closed        = market.closed,
             tags          = market.tags,
         )
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _parse_end_date(iso: str) -> Optional[datetime]:
+    """Parse an ISO 8601 end-date string into a timezone-aware datetime.
+    Returns None if the string is empty or unparseable.
+    """
+    if not iso:
+        return None
+    for fmt in (
+        "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%dT%H:%M:%S.%fZ",
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%dT%H:%M:%S.%f%z",
+        "%Y-%m-%d",
+    ):
+        try:
+            dt = datetime.strptime(iso, fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except ValueError:
+            continue
+    return None
