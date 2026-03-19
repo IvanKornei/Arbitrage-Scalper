@@ -94,14 +94,15 @@ def build_config() -> AgentConfig:
 
 
 def build_client() -> PolymarketClient:
-    funder = _str("POLY_FUNDER_ADDRESS")
-    import logging
-    logging.getLogger(__name__).info("[Config] POLY_FUNDER_ADDRESS=%r", funder)
+    from dotenv import dotenv_values
+    _env = dotenv_values()
+    funder = _env.get("POLY_FUNDER_ADDRESS") or os.getenv("POLY_FUNDER_ADDRESS", "")
+    print(f"[Config] POLY_FUNDER_ADDRESS={funder!r}", flush=True)
     return PolymarketClient(
-        private_key    = _str("POLY_PRIVATE_KEY"),
-        api_key        = _str("POLY_API_KEY"),
-        api_secret     = _str("POLY_API_SECRET"),
-        api_passphrase = _str("POLY_API_PASSPHRASE"),
+        private_key    = _env.get("POLY_PRIVATE_KEY") or _str("POLY_PRIVATE_KEY"),
+        api_key        = _env.get("POLY_API_KEY") or _str("POLY_API_KEY"),
+        api_secret     = _env.get("POLY_API_SECRET") or _str("POLY_API_SECRET"),
+        api_passphrase = _env.get("POLY_API_PASSPHRASE") or _str("POLY_API_PASSPHRASE"),
         funder         = funder,
     )
 
