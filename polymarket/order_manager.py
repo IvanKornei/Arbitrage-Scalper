@@ -82,6 +82,17 @@ class OrderManager:
             )
             return None
 
+        # Safety cap: never exceed POLY_MAX_BET_USDC regardless of Kelly output
+        import os as _os
+        _raw = _os.getenv("POLY_MAX_BET_USDC", "")
+        _hard_cap = float(_raw) if _raw.strip() else float("inf")
+        if size_usdc > _hard_cap:
+            log.warning(
+                "[OrderMgr] Bet $%.2f exceeds hard cap $%.2f – capping",
+                size_usdc, _hard_cap,
+            )
+            size_usdc = _hard_cap
+
         token_id = (
             market.yes_token_id if direction == "YES" else market.no_token_id
         )

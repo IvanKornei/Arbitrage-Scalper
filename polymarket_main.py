@@ -91,6 +91,7 @@ def build_config() -> AgentConfig:
         min_bet_usdc        = _float("POLY_MIN_BET_USDC",      1.0),
         max_bet_usdc        = max_bet_usdc,
         scan_interval_sec   = _float("POLY_SCAN_INTERVAL",     1800.0),
+        scan_pages          = _int  ("POLY_SCAN_PAGES",        100),
         price_refresh       = True,
         scan_config         = scan_cfg,
         dry_run             = _bool ("POLY_DRY_RUN",                True),

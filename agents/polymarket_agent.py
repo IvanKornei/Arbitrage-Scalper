@@ -51,6 +51,7 @@ class AgentConfig:
 
     # Scan timing
     scan_interval_sec: float  = 1800.0        # scan every 30 minutes
+    scan_pages: int           = 100           # pages × 100 = markets fetched (100→10 000)
     price_refresh: bool       = True          # refresh live price before decision
 
     # Market filter
@@ -137,7 +138,7 @@ class PolymarketAgent:
             return
 
         # 3. Scan markets
-        markets = await self._scanner.scan(pages=3)
+        markets = await self._scanner.scan(pages=self._cfg.scan_pages)
         if not markets:
             log.warning("[Agent] No tradeable markets found")
             return
