@@ -313,6 +313,12 @@ class PolymarketAgent:
         our_no_prob     = 1.0 - our_yes_prob
         market_no_price = 1.0 - market_yes_price
 
+        if abs(our_yes_prob - 0.5) < 0.01:
+            log.warning(
+                "[Agent] MiroFish returned ~50%% (uncertain/fallback?) for: %s",
+                market.question[:70],
+            )
+
         # Calculate edges for both directions
         yes_edge = self._kelly.edge(our_yes_prob, market_yes_price)
         no_edge  = self._kelly.edge(our_no_prob,  market_no_price)
@@ -399,7 +405,9 @@ class PolymarketAgent:
     @staticmethod
     def _build_context(market: PolyMarket) -> str:
         """Build seed text for MiroFish from market metadata."""
+        today = datetime.now(timezone.utc).strftime("%B %d, %Y")
         parts = [
+            f"Today's date: {today}",
             f"Market question: {market.question}",
             "",
         ]

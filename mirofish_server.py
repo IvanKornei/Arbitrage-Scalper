@@ -14,7 +14,10 @@ from __future__ import annotations
 import uuid
 from typing import Dict, Any
 
+import logging
 import os
+
+log = logging.getLogger("mirofish_server")
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -142,7 +145,9 @@ async def generate_report(project_id: str):
 
     try:
         report_text = _gemini_predict(prompt)
+        log.info("[MiroFish] Gemini OK for project %s (%.0f chars)", project_id[:8], len(report_text))
     except Exception as e:
+        log.error("[MiroFish] Gemini API ERROR: %s", e)
         report_text = f"Analysis unavailable. Probability: 50%\nError: {e}"
 
     report_id = str(uuid.uuid4())
