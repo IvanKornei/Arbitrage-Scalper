@@ -49,11 +49,8 @@ class AgentConfig:
     min_edge_pct: float       = 0.05          # 5% minimum edge to bet
     max_open_positions: int   = 10
 
-    # Kelly sizing
-    kelly_fraction: float     = 0.25
-    max_bet_fraction: float   = 0.05          # max 5% bankroll per bet
-    min_bet_usdc: float       = 1.0           # minimum bet size
-    max_bet_usdc: float       = float("inf")  # hard cap per bet in USDC
+    # Bet size – fixed, non-configurable
+    # Each bet is always exactly $1.00 USDC. This cannot be changed via config.
 
     # Scan timing
     scan_interval_sec: float  = 1800.0        # scan every 30 minutes
@@ -96,12 +93,7 @@ class PolymarketAgent:
         self._cfg     = config
         self._scanner = MarketScanner(poly_client, config.scan_config)
         self._orders  = OrderManager(poly_client, dry_run=config.dry_run)
-        self._kelly   = KellySizer(
-            fraction_kelly=config.kelly_fraction,
-            max_fraction_of_bankroll=config.max_bet_fraction,
-            min_bet_usdc=config.min_bet_usdc,
-            max_bet_usdc=config.max_bet_usdc,
-        )
+        self._kelly   = KellySizer()
         self._stop_event = asyncio.Event()
         self._cycle      = 0
 
@@ -183,7 +175,7 @@ class PolymarketAgent:
                 if self._orders.has_position(market.condition_id):
                     continue
 
-                candidate = await self._evaluate_market(predictor, market, bankroll)
+                candidate = await self._evaluate_market(predictor, market)
                 if candidate is not None:
                     candidates.append(candidate)
 
@@ -231,7 +223,6 @@ class PolymarketAgent:
         self,
         predictor: MiroFishPredictor,
         market: PolyMarket,
-        bankroll: float,
     ) -> Optional[_Candidate]:
         """
         Run MiroFish on one market.
@@ -294,11 +285,8 @@ class PolymarketAgent:
                      best_edge * 100, self._cfg.min_edge_pct * 100)
             return None
 
-        # Kelly sizing (only to determine amount; bet not placed yet)
-        bet_size = self._kelly.size(bankroll, best_our_prob, best_mkt_price)
-        if bet_size <= 0:
-            log.info("[Agent] Kelly returned 0 size – skip")
-            return None
+        # Fixed bet size: always exactly $1.00 USDC — non-negotiable
+        bet_size = 1.0
 
         return _Candidate(
             market    = market,
