@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
 from mirofish.predictor import MiroFishPredictor
+from polymarket.calibration import CalibrationLog
 from polymarket.client import PolyMarket, PolymarketClient
 from polymarket.kelly import KellySizer
 from polymarket.market_scanner import MarketScanner, ScanConfig, _parse_end_date
@@ -102,6 +103,7 @@ class PolymarketAgent:
         self._scanner = MarketScanner(poly_client, config.scan_config)
         self._orders  = OrderManager(poly_client, dry_run=config.dry_run)
         self._kelly   = KellySizer()
+        self._cal     = CalibrationLog()
         self._stop_event = asyncio.Event()
         self._cycle      = 0
 
@@ -135,6 +137,14 @@ class PolymarketAgent:
 
             log.info("[Agent] Cycle %d done in %.1fs", self._cycle, time.monotonic() - t0)
             log.info("%s", self._orders.summary())
+
+            cal = self._cal.summary()
+            if cal.get("resolved", 0) > 0:
+                log.info(
+                    "[Calibration] Brier=%.4f | Market Brier=%.4f | %s (%d resolved)",
+                    cal["brier_score"], cal["market_brier"],
+                    cal["verdict"], cal["resolved"],
+                )
 
             await self._sleep_interruptible(self._cfg.scan_interval_sec)
 
@@ -183,7 +193,7 @@ class PolymarketAgent:
                 if self._orders.has_position(market.condition_id):
                     continue
 
-                candidate = await self._evaluate_market(predictor, market)
+                candidate = await self._evaluate_market(predictor, market, bankroll)
                 if candidate is not None:
                     candidates.append(candidate)
 
@@ -263,6 +273,7 @@ class PolymarketAgent:
         self,
         predictor: MiroFishPredictor,
         market: PolyMarket,
+        bankroll: float = 100.0,
     ) -> Optional[_Candidate]:
         """
         Run MiroFish on one market.
@@ -298,7 +309,7 @@ class PolymarketAgent:
             if end_dt is not None:
                 mins_left = (end_dt - datetime.now(timezone.utc)).total_seconds() / 60
                 if 0 < mins_left <= self._cfg.fast_lane_minutes:
-                    return self._fast_lane_candidate(market, mins_left)
+                    return self._fast_lane_candidate(market, mins_left, bankroll)
 
         # Build seed context for MiroFish
         context = self._build_context(market)
@@ -342,8 +353,24 @@ class PolymarketAgent:
                      best_edge * 100, self._cfg.min_edge_pct * 100)
             return None
 
-        # Fixed bet size: always exactly $1.00 USDC — non-negotiable
-        bet_size = 1.0
+        bet_size = self._kelly.size(bankroll, best_our_prob, best_mkt_price)
+        if bet_size <= 0:
+            log.info("[Agent] Kelly returns 0 for %s – skip", market.question[:50])
+            return None
+        log.info("[Agent] Kelly size: $%.2f (bankroll=$%.2f edge=%.2f%%)",
+                 bet_size, bankroll, best_edge * 100)
+
+        # Log prediction for calibration tracking
+        self._cal.log(
+            market_id    = market.condition_id,
+            question     = market.question,
+            our_prob     = best_our_prob,
+            market_price = best_mkt_price,
+            direction    = best_direction,
+            edge         = best_edge,
+            bet_placed   = True,
+            bet_size     = bet_size,
+        )
 
         return _Candidate(
             market    = market,
@@ -355,7 +382,7 @@ class PolymarketAgent:
         )
 
     def _fast_lane_candidate(
-        self, market: PolyMarket, mins_left: float
+        self, market: PolyMarket, mins_left: float, bankroll: float = 100.0
     ) -> Optional[_Candidate]:
         """
         Fast-lane path for near-expiry markets.
@@ -392,13 +419,17 @@ class PolymarketAgent:
             "[Agent] FAST LANE (%.1f min left) %s | dir=%s | mkt=%.3f",
             mins_left, market.question[:55], direction, mkt_price,
         )
+        bet_size = self._kelly.size(bankroll, our_prob, mkt_price)
+        if bet_size <= 0:
+            bet_size = self._kelly.min_bet_usdc  # fast lane: always place minimum
+
         return _Candidate(
             market    = market,
             direction = direction,
             edge      = edge,
             our_prob  = our_prob,
             mkt_price = mkt_price,
-            bet_size  = 1.0,
+            bet_size  = bet_size,
         )
 
     # ── Helpers ───────────────────────────────────────────────────────────────

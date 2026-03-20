@@ -183,14 +183,5 @@ class MiroFishPredictor:
         parts += [
             "## Market Data & Context",
             context,
-            "",
-            "## Your Task",
-            (
-                "As a superforecaster, estimate the probability this question resolves YES.\n"
-                "- The market price shown above reflects crowd wisdom — treat it as a prior.\n"
-                "- Only deviate significantly if you have concrete evidence or reasoning.\n"
-                "- Avoid anchoring to exactly 50% unless genuinely maximally uncertain.\n"
-                "- State your final answer as: Probability: X%"
-            ),
         ]
         return "\n".join(parts)
