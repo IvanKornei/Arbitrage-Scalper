@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Tuple
 
 from polymarket.client import PolyMarket, PolymarketClient
 from utils.logger import get_logger
@@ -27,15 +27,20 @@ log = get_logger(__name__)
 
 @dataclass
 class ScanConfig:
-    min_volume_24h: float = 0.0             # USD – minimum 24h volume (0 = disabled)
-    min_liquidity: float = 0.0             # USD – minimum liquidity (0 = disabled)
+    min_volume_24h: float = 500.0           # USD – minimum 24h volume
+    min_liquidity: float = 100.0            # USD – minimum liquidity
     max_markets: int = 20                   # markets to return per scan
     excluded_categories: Set[str] = field(
         default_factory=lambda: set()
     )
-    price_deadzone_low: float = 0.01        # skip if YES price < 1%
-    price_deadzone_high: float = 0.99       # skip if YES price > 99%
+    price_deadzone_low: float = 0.05        # skip if YES price < 5%
+    price_deadzone_high: float = 0.95       # skip if YES price > 95%
     max_days_to_end: Optional[int] = None   # None = no cap
+    # Markets whose question or description contains any of these words are skipped
+    skip_keywords: Tuple[str, ...] = (
+        "postponed", "suspended", "cancelled", "canceled",
+        "delayed", "rescheduled",
+    )
 
 
 class MarketScanner:
@@ -83,7 +88,7 @@ class MarketScanner:
         now = datetime.now(timezone.utc)
         out: List[PolyMarket] = []
 
-        c_inactive = c_no_tokens = c_price = c_volume = c_liquidity = c_category = c_days = 0
+        c_inactive = c_no_tokens = c_price = c_volume = c_liquidity = c_category = c_days = c_keyword = 0
 
         for m in markets:
             # Must be active and not closed
@@ -105,6 +110,10 @@ class MarketScanner:
             cat = m.category.lower()
             if cat in {c.lower() for c in cfg.excluded_categories}:
                 c_category += 1; continue
+            # Skip postponed / cancelled / suspended markets
+            haystack = (m.question + " " + m.description).lower()
+            if any(kw in haystack for kw in cfg.skip_keywords):
+                c_keyword += 1; continue
             # Skip markets whose end date is already in the past
             if m.end_date_iso:
                 end_dt = _parse_end_date(m.end_date_iso)
@@ -121,11 +130,11 @@ class MarketScanner:
 
         log.info(
             "[Scanner] Filter breakdown — inactive:%d no_tokens:%d price:%d "
-            "volume<%g:%d liquidity<%g:%d category:%d days>%s:%d → passed:%d",
+            "volume<%g:%d liquidity<%g:%d category:%d keyword:%d days>%s:%d → passed:%d",
             c_inactive, c_no_tokens, c_price,
             cfg.min_volume_24h, c_volume,
             cfg.min_liquidity, c_liquidity,
-            c_category,
+            c_category, c_keyword,
             cfg.max_days_to_end, c_days,
             len(out),
         )

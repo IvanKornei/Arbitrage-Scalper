@@ -59,6 +59,8 @@ class AgentConfig:
 
     # Execution control
     max_bets_per_cycle: int   = 20            # max bets placed per cycle (top-N by edge)
+    max_bets_per_event: int   = 1             # max bets sharing the same event tag
+    max_bets_per_category: int = 3            # max bets in the same category per cycle
 
     # Market filter
     scan_config: ScanConfig   = field(default_factory=ScanConfig)
@@ -193,12 +195,41 @@ class PolymarketAgent:
         )
 
         placed = 0
+        # Track bets per event-tag and per category to avoid over-concentration
+        tag_counts: dict = {}   # event_key → int
+        cat_counts: dict = {}   # category  → int
+
         for c in candidates:
             if placed >= bet_limit:
                 break
             if self._stop_event.is_set():
                 break
             if self._orders.has_position(c.market.condition_id):
+                continue
+
+            # ── Per-event deduplication ────────────────────────────────────
+            # Event key: use tags if present, else the first segment of the
+            # question before ":" (e.g. "Mavericks vs. Bucks" or "Max Christie")
+            event_keys = (
+                c.market.tags
+                if c.market.tags
+                else [c.market.question.split(":")[0].strip()[:40]]
+            )
+            if any(tag_counts.get(k, 0) >= self._cfg.max_bets_per_event
+                   for k in event_keys):
+                log.info(
+                    "[Agent] Skip (event cap %d): %s",
+                    self._cfg.max_bets_per_event, c.market.question[:60],
+                )
+                continue
+
+            # ── Per-category cap ───────────────────────────────────────────
+            cat = c.market.category.lower() or "unknown"
+            if cat_counts.get(cat, 0) >= self._cfg.max_bets_per_category:
+                log.info(
+                    "[Agent] Skip (category cap %d for '%s'): %s",
+                    self._cfg.max_bets_per_category, cat, c.market.question[:60],
+                )
                 continue
 
             log.info(
@@ -216,6 +247,9 @@ class PolymarketAgent:
             )
             if result is not None:
                 placed += 1
+                for k in event_keys:
+                    tag_counts[k] = tag_counts.get(k, 0) + 1
+                cat_counts[cat] = cat_counts.get(cat, 0) + 1
 
         log.info("[Agent] Phase 2 complete – %d bets placed", placed)
 

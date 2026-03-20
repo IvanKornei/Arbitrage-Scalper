@@ -70,24 +70,26 @@ def _str(key: str, default: str = "") -> str:
 
 def build_config() -> AgentConfig:
     scan_cfg = ScanConfig(
-        min_volume_24h      = _float("POLY_MIN_VOLUME",         0.0),
-        min_liquidity       = _float("POLY_MIN_LIQUIDITY",      0.0),
-        max_markets         = _int  ("POLY_MAX_SCAN_MARKETS",    20),
-        price_deadzone_low  = _float("POLY_PRICE_DEADZONE_LOW",  0.01),
-        price_deadzone_high = _float("POLY_PRICE_DEADZONE_HIGH", 0.99),
+        min_volume_24h      = _float("POLY_MIN_VOLUME",          500.0),
+        min_liquidity       = _float("POLY_MIN_LIQUIDITY",       100.0),
+        max_markets         = _int  ("POLY_MAX_SCAN_MARKETS",     20),
+        price_deadzone_low  = _float("POLY_PRICE_DEADZONE_LOW",   0.05),
+        price_deadzone_high = _float("POLY_PRICE_DEADZONE_HIGH",  0.95),
         max_days_to_end     = None,
     )
     return AgentConfig(
-        mirofish_url        = _str  ("MIROFISH_URL",           "http://localhost:5001"),
-        mirofish_rounds     = _int  ("POLY_SIM_ROUNDS",        10),
-        min_edge_pct        = _float("POLY_MIN_EDGE_PCT",       5.0) / 100.0,
-        max_open_positions  = _int  ("POLY_MAX_POSITIONS",      10),
-        scan_interval_sec   = _float("POLY_SCAN_INTERVAL",      1800.0),
-        scan_pages          = _int  ("POLY_SCAN_PAGES",         100),
-        max_bets_per_cycle  = _int  ("POLY_MAX_BETS_PER_CYCLE", 20),
-        price_refresh       = True,
-        scan_config         = scan_cfg,
-        dry_run             = _bool ("POLY_DRY_RUN",            True),
+        mirofish_url          = _str  ("MIROFISH_URL",             "http://localhost:5001"),
+        mirofish_rounds       = _int  ("POLY_SIM_ROUNDS",          10),
+        min_edge_pct          = _float("POLY_MIN_EDGE_PCT",         5.0) / 100.0,
+        max_open_positions    = _int  ("POLY_MAX_POSITIONS",        10),
+        scan_interval_sec     = _float("POLY_SCAN_INTERVAL",        1800.0),
+        scan_pages            = _int  ("POLY_SCAN_PAGES",           100),
+        max_bets_per_cycle    = _int  ("POLY_MAX_BETS_PER_CYCLE",   20),
+        max_bets_per_event    = _int  ("POLY_MAX_BETS_PER_EVENT",   1),
+        max_bets_per_category = _int  ("POLY_MAX_BETS_PER_CATEGORY", 3),
+        price_refresh         = True,
+        scan_config           = scan_cfg,
+        dry_run               = _bool ("POLY_DRY_RUN",              True),
     )
 
 
