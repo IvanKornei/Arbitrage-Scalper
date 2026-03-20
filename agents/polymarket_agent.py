@@ -283,9 +283,10 @@ class PolymarketAgent:
         # Re-validate price after live refresh (stale price may have passed filter)
         sc = self._scanner._cfg
         if market_yes_price < sc.price_deadzone_low or market_yes_price > sc.price_deadzone_high:
-            log.debug(
-                "[Agent] Price %.4f out of tradeable range after refresh – skip %s",
-                market_yes_price, market.condition_id,
+            log.info(
+                "[Agent] Skip after refresh – price %.4f out of [%.2f, %.2f]: %s",
+                market_yes_price, sc.price_deadzone_low, sc.price_deadzone_high,
+                market.question[:60],
             )
             return None
 

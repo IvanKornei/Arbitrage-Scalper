@@ -33,8 +33,8 @@ class ScanConfig:
     excluded_categories: Set[str] = field(
         default_factory=lambda: set()
     )
-    price_deadzone_low: float = 0.05        # skip if YES price < 5%
-    price_deadzone_high: float = 0.95       # skip if YES price > 95%
+    price_deadzone_low: float = 0.02        # skip if YES price < 2%
+    price_deadzone_high: float = 0.98       # skip if YES price > 98%
     max_days_to_end: Optional[int] = None   # None = no cap
     # Markets whose question or description contains any of these words are skipped
     skip_keywords: Tuple[str, ...] = (
