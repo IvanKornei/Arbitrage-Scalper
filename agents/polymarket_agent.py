@@ -249,6 +249,15 @@ class PolymarketAgent:
             log.debug("[Agent] No YES ask price for %s – skip", market.condition_id)
             return None
 
+        # Re-validate price after live refresh (stale price may have passed filter)
+        sc = self._scanner._cfg
+        if market_yes_price < sc.price_deadzone_low or market_yes_price > sc.price_deadzone_high:
+            log.debug(
+                "[Agent] Price %.4f out of tradeable range after refresh – skip %s",
+                market_yes_price, market.condition_id,
+            )
+            return None
+
         # Build seed context for MiroFish
         context = self._build_context(market)
 

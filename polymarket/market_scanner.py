@@ -105,6 +105,11 @@ class MarketScanner:
             cat = m.category.lower()
             if cat in {c.lower() for c in cfg.excluded_categories}:
                 c_category += 1; continue
+            # Skip markets whose end date is already in the past
+            if m.end_date_iso:
+                end_dt = _parse_end_date(m.end_date_iso)
+                if end_dt is not None and end_dt < now:
+                    c_days += 1; continue
             # End-date cap: skip markets too far in the future
             if cfg.max_days_to_end is not None and m.end_date_iso:
                 end_dt = _parse_end_date(m.end_date_iso)
