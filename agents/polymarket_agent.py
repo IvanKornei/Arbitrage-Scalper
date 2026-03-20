@@ -82,8 +82,8 @@ class AgentConfig:
     min_edge_pct: float       = 0.05          # 5% minimum edge to bet
     max_open_positions: int   = 10
 
-    # Bet size – fixed, non-configurable
-    # Each bet is always exactly $1.00 USDC. This cannot be changed via config.
+    # Bet sizing (Kelly Criterion)
+    max_bet_usdc: float       = 1.00          # hard cap per bet in USDC
 
     # Scan timing
     scan_interval_sec: float  = 1800.0        # scan every 30 minutes
@@ -133,7 +133,7 @@ class PolymarketAgent:
         self._cfg     = config
         self._scanner = MarketScanner(poly_client, config.scan_config)
         self._orders  = OrderManager(poly_client, dry_run=config.dry_run)
-        self._kelly   = KellySizer()
+        self._kelly   = KellySizer(max_bet_usdc=config.max_bet_usdc)
         self._cal     = CalibrationLog()
         self._stop_event = asyncio.Event()
         self._cycle      = 0
@@ -156,6 +156,17 @@ class PolymarketAgent:
         log.info("=" * 70)
 
         await self._check_mirofish()
+
+        # Show historical calibration at startup
+        cal = self._cal.summary()
+        log.info(
+            "[Calibration] DB: %d predictions total | %d resolved | "
+            "Brier=%-6s | %s",
+            cal.get("total_predictions", 0),
+            cal.get("resolved", 0),
+            f"{cal['brier_score']:.4f}" if cal.get("brier_score") is not None else "n/a",
+            cal.get("verdict", "no resolved data yet"),
+        )
 
         while not self._stop_event.is_set():
             self._cycle += 1
@@ -400,6 +411,17 @@ class PolymarketAgent:
         if best_edge < self._cfg.min_edge_pct:
             log.info("[Agent] Edge %.2f%% < threshold %.2f%% – skip",
                      best_edge * 100, self._cfg.min_edge_pct * 100)
+            # Still log the prediction for calibration (bet_placed=False)
+            self._cal.log(
+                market_id    = market.condition_id,
+                question     = market.question,
+                our_prob     = best_our_prob,
+                market_price = best_mkt_price,
+                direction    = best_direction,
+                edge         = best_edge,
+                bet_placed   = False,
+                bet_size     = 0.0,
+            )
             return None
 
         bet_size = self._kelly.size(bankroll, best_our_prob, best_mkt_price)
@@ -409,7 +431,7 @@ class PolymarketAgent:
         log.info("[Agent] Kelly size: $%.2f (bankroll=$%.2f edge=%.2f%%)",
                  bet_size, bankroll, best_edge * 100)
 
-        # Log prediction for calibration tracking
+        # Log prediction for calibration tracking (bet_placed=True)
         self._cal.log(
             market_id    = market.condition_id,
             question     = market.question,
