@@ -25,6 +25,7 @@ better opportunity appears later in the list.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -39,6 +40,36 @@ from polymarket.order_manager import OrderManager
 from utils.logger import get_logger
 
 log = get_logger(__name__)
+
+# Precompiled pattern for stripping date-like phrases from market questions.
+# Removes "by March 31", "before June 30", "in 2026", standalone years, etc.
+# so that "Will X happen by March?" and "Will X happen by June?" share a key.
+_DATE_STRIP_RE = re.compile(
+    r"\b(?:by|before|after|until|on|in|at|through|no later than)\s+\w+\s+\d{1,2}[,]?\s*\d{0,4}"
+    r"|\b(?:by|before|after|until|in)\s+\d{4}\b"
+    r"|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}[,]?\s*\d{0,4}\b"
+    r"|\b\d{4}\b",
+    re.IGNORECASE,
+)
+
+
+def _semantic_event_key(question: str) -> str:
+    """
+    Return a normalised event key that is stable across time-horizon variants
+    of the same real-world question.
+
+    "Will the Iranian regime fall by March 31?" →
+    "will the iranian regime fall"
+    "Will the Iranian regime fall by June 30?"  →
+    "will the iranian regime fall"
+
+    Both map to the same key, preventing contradictory bets.
+    """
+    key = _DATE_STRIP_RE.sub("", question)
+    # Strip trailing punctuation / whitespace
+    key = re.sub(r"[?!.,;:\s]+$", "", key)
+    key = re.sub(r"\s{2,}", " ", key).strip().lower()
+    return key[:60]
 
 
 @dataclass
@@ -211,9 +242,12 @@ class PolymarketAgent:
         )
 
         placed = 0
-        # Track bets per event-tag and per category to avoid over-concentration
-        tag_counts: dict = {}   # event_key → int
-        cat_counts: dict = {}   # category  → int
+        # event_key → direction already bet ("YES" or "NO")
+        # Used to prevent betting opposite sides of the same real-world event
+        # (e.g. YES on "Iran fall by March" and NO on "Iran fall by June")
+        event_direction: dict = {}  # semantic_key → direction
+        tag_counts: dict = {}       # semantic_key  → bet count
+        cat_counts: dict = {}       # category      → bet count
 
         for c in candidates:
             if placed >= bet_limit:
@@ -223,14 +257,17 @@ class PolymarketAgent:
             if self._orders.has_position(c.market.condition_id):
                 continue
 
-            # ── Per-event deduplication ────────────────────────────────────
-            # Event key: use tags if present, else the first segment of the
-            # question before ":" (e.g. "Mavericks vs. Bucks" or "Max Christie")
+            # ── Per-event deduplication (semantic key) ─────────────────────
+            # Build a date-stripped semantic key so that
+            #   "Will the Iranian regime fall by March 31?"
+            #   "Will the Iranian regime fall by June 30?"
+            # both map to "will the iranian regime fall" and block each other.
+            sem_key = _semantic_event_key(c.market.question)
             event_keys = (
-                c.market.tags
-                if c.market.tags
-                else [c.market.question.split(":")[0].strip()[:40]]
+                c.market.tags if c.market.tags else [sem_key]
             )
+
+            # Check event cap
             if any(tag_counts.get(k, 0) >= self._cfg.max_bets_per_event
                    for k in event_keys):
                 log.info(
@@ -239,14 +276,24 @@ class PolymarketAgent:
                 )
                 continue
 
-            # ── Per-category cap ───────────────────────────────────────────
-            cat = c.market.category.lower() or "unknown"
-            if cat_counts.get(cat, 0) >= self._cfg.max_bets_per_category:
+            # Check directional consistency: never bet opposite sides of same event
+            prior_dir = event_direction.get(sem_key)
+            if prior_dir is not None and prior_dir != c.direction:
                 log.info(
-                    "[Agent] Skip (category cap %d for '%s'): %s",
-                    self._cfg.max_bets_per_category, cat, c.market.question[:60],
+                    "[Agent] Skip (contradicts earlier %s bet on same event): %s",
+                    prior_dir, c.market.question[:60],
                 )
                 continue
+
+            # ── Per-category cap (skip for uncategorised markets) ──────────
+            cat = c.market.category.lower() if c.market.category else ""
+            if cat and cat != "unknown":
+                if cat_counts.get(cat, 0) >= self._cfg.max_bets_per_category:
+                    log.info(
+                        "[Agent] Skip (category cap %d for '%s'): %s",
+                        self._cfg.max_bets_per_category, cat, c.market.question[:60],
+                    )
+                    continue
 
             log.info(
                 "[Agent] SIGNAL %s | edge=%.2f%% | bet=$%.2f | dir=%s",
@@ -265,7 +312,9 @@ class PolymarketAgent:
                 placed += 1
                 for k in event_keys:
                     tag_counts[k] = tag_counts.get(k, 0) + 1
-                cat_counts[cat] = cat_counts.get(cat, 0) + 1
+                event_direction[sem_key] = c.direction
+                if cat and cat != "unknown":
+                    cat_counts[cat] = cat_counts.get(cat, 0) + 1
 
         log.info("[Agent] Phase 2 complete – %d bets placed", placed)
 

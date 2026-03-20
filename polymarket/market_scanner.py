@@ -35,7 +35,7 @@ class ScanConfig:
     )
     price_deadzone_low: float = 0.02        # skip if YES price < 2%
     price_deadzone_high: float = 0.98       # skip if YES price > 98%
-    max_days_to_end: Optional[int] = None   # None = no cap
+    max_days_to_end: Optional[int] = 30    # focus on events within 30 days
     # Markets whose question or description contains any of these words are skipped
     skip_keywords: Tuple[str, ...] = (
         "postponed", "suspended", "cancelled", "canceled",
@@ -146,9 +146,9 @@ class MarketScanner:
         Rank by composite score (descending).
 
         Weights:
-          1. Time proximity  – 0.50  soonest-ending markets first
-          2. Liquidity       – 0.30  deeper book = better MiroFish analysis
-          3. Uncertainty     – 0.20  YES price closest to 0.5
+          1. Time proximity  – 0.70  soonest-ending markets first (dominant)
+          2. Liquidity       – 0.20  deeper book = better MiroFish analysis
+          3. Uncertainty     – 0.10  YES price closest to 0.5
 
         Markets with no parseable end date get time_score = 0.
         """
@@ -179,7 +179,7 @@ class MarketScanner:
                     time_score = 1.0 - (days_left / max_days) if max_days > 0 else 1.0
 
             uncertainty = 1.0 - abs(m.yes_price - 0.5) * 2
-            return time_score * 0.50 + norm_liq * 0.30 + uncertainty * 0.20
+            return time_score * 0.70 + norm_liq * 0.20 + uncertainty * 0.10
 
         return sorted(markets, key=score, reverse=True)
 

@@ -117,7 +117,15 @@ def _gemini_call(prompt: str, use_search: bool = True) -> str:
         timeout=60,
     )
     resp.raise_for_status()
-    return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    data = resp.json()
+    # When google_search tool is active Gemini may return multiple parts:
+    # parts[0] could be a functionCall (the search query), parts[1] the text.
+    # We scan all parts for the last one that carries a "text" field.
+    parts = data["candidates"][0]["content"]["parts"]
+    for part in reversed(parts):
+        if "text" in part:
+            return part["text"]
+    return ""
 
 
 def _gemini_predict(seed: str) -> str:
