@@ -27,12 +27,13 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
 from mirofish.predictor import MiroFishPredictor
 from polymarket.client import PolyMarket, PolymarketClient
 from polymarket.kelly import KellySizer
-from polymarket.market_scanner import MarketScanner, ScanConfig
+from polymarket.market_scanner import MarketScanner, ScanConfig, _parse_end_date
 from polymarket.order_manager import OrderManager
 from utils.logger import get_logger
 
@@ -58,9 +59,14 @@ class AgentConfig:
     price_refresh: bool       = True          # refresh live price before decision
 
     # Execution control
-    max_bets_per_cycle: int   = 20            # max bets placed per cycle (top-N by edge)
-    max_bets_per_event: int   = 1             # max bets sharing the same event tag
+    max_bets_per_cycle: int    = 20           # max bets placed per cycle (top-N by edge)
+    max_bets_per_event: int    = 1            # max bets sharing the same event tag
     max_bets_per_category: int = 3            # max bets in the same category per cycle
+
+    # Fast-lane: near-expiry markets (skip Gemini, bet on leading side)
+    fast_lane_minutes: int     = 5            # minutes-to-end threshold for fast lane
+    fast_lane_min_prob: float  = 0.80         # minimum market confidence to enter fast lane
+    fast_lane_min_edge: float  = 0.02         # lower edge threshold used in fast lane
 
     # Market filter
     scan_config: ScanConfig   = field(default_factory=ScanConfig)
@@ -283,6 +289,16 @@ class PolymarketAgent:
             )
             return None
 
+        # ── Fast lane: near-expiry markets ────────────────────────────────
+        # If the market expires within fast_lane_minutes, skip Gemini entirely
+        # and bet on the leading side if it shows sufficient confidence.
+        if market.end_date_iso and self._cfg.fast_lane_minutes > 0:
+            end_dt = _parse_end_date(market.end_date_iso)
+            if end_dt is not None:
+                mins_left = (end_dt - datetime.now(timezone.utc)).total_seconds() / 60
+                if 0 < mins_left <= self._cfg.fast_lane_minutes:
+                    return self._fast_lane_candidate(market, mins_left)
+
         # Build seed context for MiroFish
         context = self._build_context(market)
 
@@ -329,6 +345,53 @@ class PolymarketAgent:
             our_prob  = best_our_prob,
             mkt_price = best_mkt_price,
             bet_size  = bet_size,
+        )
+
+    def _fast_lane_candidate(
+        self, market: PolyMarket, mins_left: float
+    ) -> Optional[_Candidate]:
+        """
+        Fast-lane path for near-expiry markets.
+
+        Skips Gemini entirely and bets on whichever side the market already
+        shows high confidence in (>= fast_lane_min_prob). Treats the market
+        price itself as the probability estimate — a small fixed bonus (0.02)
+        creates a positive edge so the candidate passes the filter.
+
+        Rationale: with < fast_lane_minutes remaining, prices are usually
+        anchored close to resolution. Quick capital turnover is the goal.
+        """
+        yes_p = market.yes_price
+        no_p  = 1.0 - yes_p
+        threshold = self._cfg.fast_lane_min_prob
+
+        if yes_p >= threshold:
+            direction = "YES"
+            mkt_price = yes_p
+        elif no_p >= threshold:
+            direction = "NO"
+            mkt_price = no_p
+        else:
+            return None  # neither side confident enough
+
+        # Tiny fixed bonus to create positive edge (market price is our base)
+        our_prob = min(mkt_price + 0.02, 0.99)
+        edge     = our_prob - mkt_price  # = 0.02
+
+        if edge < self._cfg.fast_lane_min_edge:
+            return None
+
+        log.info(
+            "[Agent] FAST LANE (%.1f min left) %s | dir=%s | mkt=%.3f",
+            mins_left, market.question[:55], direction, mkt_price,
+        )
+        return _Candidate(
+            market    = market,
+            direction = direction,
+            edge      = edge,
+            our_prob  = our_prob,
+            mkt_price = mkt_price,
+            bet_size  = 1.0,
         )
 
     # ── Helpers ───────────────────────────────────────────────────────────────
