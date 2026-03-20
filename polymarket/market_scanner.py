@@ -129,12 +129,14 @@ class MarketScanner:
     @staticmethod
     def _rank(markets: List[PolyMarket]) -> List[PolyMarket]:
         """
-        Rank by composite score (descending):
-          1. Liquidity       – higher liquidity = more MiroFish context  (weight 0.5)
-          2. Time proximity  – markets ending sooner score higher         (weight 0.3)
-          3. Uncertainty     – YES price closest to 0.5                   (weight 0.2)
+        Rank by composite score (descending).
 
-        Markets with no parseable end date are ranked by liquidity only.
+        Weights (ratio 300 : 50 : 20, normalised to 1.0):
+          1. Liquidity       – 0.81  deeper book = better MiroFish analysis
+          2. Time proximity  – 0.13  soonest-ending markets first
+          3. Uncertainty     – 0.06  YES price closest to 0.5
+
+        Markets with no parseable end date get time_score = 0.
         """
         if not markets:
             return []
@@ -163,7 +165,7 @@ class MarketScanner:
                     time_score = 1.0 - (days_left / max_days) if max_days > 0 else 1.0
 
             uncertainty = 1.0 - abs(m.yes_price - 0.5) * 2
-            return norm_liq * 0.5 + time_score * 0.3 + uncertainty * 0.2
+            return norm_liq * 0.81 + time_score * 0.13 + uncertainty * 0.06
 
         return sorted(markets, key=score, reverse=True)
 

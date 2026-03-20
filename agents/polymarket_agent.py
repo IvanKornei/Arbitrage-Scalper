@@ -1,19 +1,25 @@
 """
 agents/polymarket_agent.py – Main AI trading agent for Polymarket.
 
-Loop (every scan_interval_sec):
-  1. Scan Polymarket for tradeable markets
-  2. For each market not yet in portfolio:
-       a. Refresh live price
-       b. Build context (news placeholder / question + description)
-       c. Ask MiroFish for YES probability
-       d. Compute edge = our_prob - market_price
-       e. If edge > threshold: size via Kelly → place bet
-  3. Log summary
+Two-phase loop (every scan_interval_sec):
 
-The agent is intentionally single-threaded within each scan cycle to
-avoid hammering MiroFish (which is CPU/token intensive). Markets are
-processed sequentially; MiroFish simulation takes 2–5 minutes per market.
+  Phase 1 – Analysis (MiroFish processes all candidates):
+    1. Scan Polymarket for up to POLY_SCAN_PAGES × 100 markets
+    2. Filter & rank by liquidity (top POLY_MAX_SCAN_MARKETS passed to MiroFish)
+    3. For each candidate:
+         a. Refresh live price
+         b. Build context (question + description + market data)
+         c. Ask MiroFish for YES probability
+         d. Compute edge = our_prob - market_price
+         e. If edge > threshold: record as a candidate bet
+
+  Phase 2 – Execution (place only the best bets):
+    4. Sort all candidates by edge (descending)
+    5. Place the top POLY_MAX_BETS_PER_CYCLE bets (default 20), capped at
+       max_open_positions remaining slots.
+
+This ensures we never bet on the first market MiroFish evaluates if a
+better opportunity appears later in the list.
 """
 
 from __future__ import annotations
@@ -21,7 +27,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from mirofish.predictor import MiroFishPredictor
 from polymarket.client import PolyMarket, PolymarketClient
@@ -51,8 +57,11 @@ class AgentConfig:
 
     # Scan timing
     scan_interval_sec: float  = 1800.0        # scan every 30 minutes
-    scan_pages: int           = 100           # pages × 100 = markets fetched (100→10 000)
+    scan_pages: int           = 100           # pages × 100 = markets fetched
     price_refresh: bool       = True          # refresh live price before decision
+
+    # Execution control
+    max_bets_per_cycle: int   = 20            # max bets placed per cycle (top-N by edge)
 
     # Market filter
     scan_config: ScanConfig   = field(default_factory=ScanConfig)
@@ -61,10 +70,21 @@ class AgentConfig:
     dry_run: bool             = True          # start in dry-run mode by default
 
 
+@dataclass
+class _Candidate:
+    """Holds MiroFish evaluation result before bet placement."""
+    market: PolyMarket
+    direction: str      # "YES" | "NO"
+    edge: float
+    our_prob: float
+    mkt_price: float
+    bet_size: float
+
+
 class PolymarketAgent:
     """
     Autonomous AI trading agent:
-      MiroFish predictions → Kelly sizing → Polymarket orders.
+      MiroFish predictions → collect all results → Kelly sizing → top-N bets.
     """
 
     def __init__(
@@ -96,6 +116,10 @@ class PolymarketAgent:
                  self._cfg.dry_run, self._cfg.min_edge_pct * 100)
         log.info("  MiroFish: %s | rounds=%d",
                  self._cfg.mirofish_url, self._cfg.mirofish_rounds)
+        log.info("  Scan: %d pages | top-%d markets analysed | top-%d bets placed",
+                 self._cfg.scan_pages,
+                 self._cfg.scan_config.max_markets,
+                 self._cfg.max_bets_per_cycle)
         log.info("=" * 70)
 
         await self._check_mirofish()
@@ -132,18 +156,22 @@ class PolymarketAgent:
                  bankroll, self._orders.open_count)
 
         # 2. Check position cap
-        if self._orders.open_count >= self._cfg.max_open_positions:
+        slots_available = self._cfg.max_open_positions - self._orders.open_count
+        if slots_available <= 0:
             log.info("[Agent] Max positions reached (%d) – skipping scan",
                      self._cfg.max_open_positions)
             return
 
-        # 3. Scan markets
+        # 3. Scan markets (up to scan_pages × 100, filtered & ranked)
         markets = await self._scanner.scan(pages=self._cfg.scan_pages)
         if not markets:
             log.warning("[Agent] No tradeable markets found")
             return
 
-        # 4. Evaluate each market through MiroFish
+        # ── PHASE 1: MiroFish analysis ─────────────────────────────────────
+        log.info("[Agent] Phase 1: analysing %d markets with MiroFish…", len(markets))
+        candidates: List[_Candidate] = []
+
         async with MiroFishPredictor(
             base_url=self._cfg.mirofish_url,
             simulation_rounds=self._cfg.mirofish_rounds,
@@ -152,19 +180,64 @@ class PolymarketAgent:
             for market in markets:
                 if self._stop_event.is_set():
                     break
-                if self._orders.open_count >= self._cfg.max_open_positions:
-                    break
                 if self._orders.has_position(market.condition_id):
                     continue
 
-                await self._evaluate_market(predictor, market, bankroll)
+                candidate = await self._evaluate_market(predictor, market, bankroll)
+                if candidate is not None:
+                    candidates.append(candidate)
+
+        if not candidates:
+            log.info("[Agent] Phase 1 complete – no edge found in any market")
+            return
+
+        # ── PHASE 2: Place top-N bets by edge ─────────────────────────────
+        candidates.sort(key=lambda c: c.edge, reverse=True)
+        bet_limit = min(self._cfg.max_bets_per_cycle, slots_available)
+
+        log.info(
+            "[Agent] Phase 2: %d candidates with edge, placing top-%d bets",
+            len(candidates), bet_limit,
+        )
+
+        placed = 0
+        for c in candidates:
+            if placed >= bet_limit:
+                break
+            if self._stop_event.is_set():
+                break
+            if self._orders.has_position(c.market.condition_id):
+                continue
+
+            log.info(
+                "[Agent] SIGNAL %s | edge=%.2f%% | bet=$%.2f | dir=%s",
+                c.market.question[:50],
+                c.edge * 100, c.bet_size, c.direction,
+            )
+
+            result = await self._orders.place_bet(
+                market       = c.market,
+                direction    = c.direction,
+                size_usdc    = c.bet_size,
+                price        = c.mkt_price,
+                market_order = True,
+            )
+            if result is not None:
+                placed += 1
+
+        log.info("[Agent] Phase 2 complete – %d bets placed", placed)
 
     async def _evaluate_market(
         self,
         predictor: MiroFishPredictor,
         market: PolyMarket,
         bankroll: float,
-    ) -> None:
+    ) -> Optional[_Candidate]:
+        """
+        Run MiroFish on one market.
+        Returns a _Candidate if edge exceeds threshold, else None.
+        Does NOT place any orders.
+        """
         log.info("[Agent] Evaluating: %s", market.question[:70])
 
         # Refresh live price
@@ -174,7 +247,7 @@ class PolymarketAgent:
         market_yes_price = market.yes_price
         if market_yes_price <= 0:
             log.debug("[Agent] No YES ask price for %s – skip", market.condition_id)
-            return
+            return None
 
         # Build seed context for MiroFish
         context = self._build_context(market)
@@ -187,8 +260,8 @@ class PolymarketAgent:
             market_id       = market.condition_id,
         )
 
-        our_no_prob    = 1.0 - our_yes_prob
-        market_no_price = 1.0 - market_yes_price   # approx. NO price
+        our_no_prob     = 1.0 - our_yes_prob
+        market_no_price = 1.0 - market_yes_price
 
         # Calculate edges for both directions
         yes_edge = self._kelly.edge(our_yes_prob, market_yes_price)
@@ -210,26 +283,21 @@ class PolymarketAgent:
         if best_edge < self._cfg.min_edge_pct:
             log.info("[Agent] Edge %.2f%% < threshold %.2f%% – skip",
                      best_edge * 100, self._cfg.min_edge_pct * 100)
-            return
+            return None
 
-        # Kelly sizing
+        # Kelly sizing (only to determine amount; bet not placed yet)
         bet_size = self._kelly.size(bankroll, best_our_prob, best_mkt_price)
         if bet_size <= 0:
             log.info("[Agent] Kelly returned 0 size – skip")
-            return
+            return None
 
-        log.info(
-            "[Agent] SIGNAL %s | edge=%.2f%% | bet=$%.2f | dir=%s",
-            market.question[:50],
-            best_edge * 100, bet_size, best_direction,
-        )
-
-        await self._orders.place_bet(
-            market       = market,
-            direction    = best_direction,
-            size_usdc    = bet_size,
-            price        = best_mkt_price,
-            market_order = True,
+        return _Candidate(
+            market    = market,
+            direction = best_direction,
+            edge      = best_edge,
+            our_prob  = best_our_prob,
+            mkt_price = best_mkt_price,
+            bet_size  = bet_size,
         )
 
     # ── Helpers ───────────────────────────────────────────────────────────────
@@ -267,12 +335,7 @@ class PolymarketAgent:
             pass
 
     async def _check_mirofish(self) -> None:
-        """Verify MiroFish is reachable before starting the trading loop.
-
-        Raises RuntimeError if MiroFish is not available — the agent cannot
-        function without it, so we fail fast rather than silently skip all
-        markets every cycle.
-        """
+        """Verify MiroFish is reachable before starting the trading loop."""
         async with MiroFishPredictor(base_url=self._cfg.mirofish_url) as p:
             ok = await p.is_available()
         if ok:
