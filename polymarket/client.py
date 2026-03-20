@@ -234,16 +234,25 @@ class PolymarketClient:
             return {"bids": [], "asks": []}
 
     async def get_best_ask(self, token_id: str) -> float:
-        """Return the best (lowest) ask price for a token.
+        """Return the best ask price using the /price endpoint.
 
-        Polymarket CLOB returns asks sorted DESCENDING (highest first).
-        The best ask for a buyer is therefore asks[-1], not asks[0].
+        Uses /price?token_id=...&side=buy instead of /book because the
+        /book endpoint is known to return stale ghost data (ask: 0.99)
+        for active markets (Polymarket py-clob-client issue #180).
         """
-        book = await self.get_orderbook(token_id)
-        asks = book.get("asks", [])
-        if not asks:
+        try:
+            async with self.session.get(
+                f"{self._clob_host}/price",
+                params={"token_id": token_id, "side": "buy"},
+            ) as resp:
+                if resp.status != 200:
+                    return 0.0
+                data = await resp.json(content_type=None)
+                price = data.get("price", 0)
+                return float(price) if price else 0.0
+        except Exception as exc:
+            log.error("[Poly] get_best_ask error: %s", exc)
             return 0.0
-        return min(float(a.get("price", 1.0)) for a in asks)
 
     async def get_balance_usdc(self) -> float:
         """Return USDC balance (collateral) available for trading."""
