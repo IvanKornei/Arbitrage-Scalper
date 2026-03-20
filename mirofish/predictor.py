@@ -181,16 +181,16 @@ class MiroFishPredictor:
         if resolution_date:
             parts += [f"## Resolution Date\n{resolution_date}", ""]
         parts += [
-            "## Background & Context",
+            "## Market Data & Context",
             context,
             "",
-            "## Task",
+            "## Your Task",
             (
-                "Analyse the information above and simulate how different agents "
-                "(market participants, experts, media) would react and form opinions. "
-                "Based on the simulation, provide a probability estimate (0–100%) "
-                "for the question resolving YES. "
-                "Be explicit: state 'Probability: X%' in your final conclusion."
+                "As a superforecaster, estimate the probability this question resolves YES.\n"
+                "- The market price shown above reflects crowd wisdom — treat it as a prior.\n"
+                "- Only deviate significantly if you have concrete evidence or reasoning.\n"
+                "- Avoid anchoring to exactly 50% unless genuinely maximally uncertain.\n"
+                "- State your final answer as: Probability: X%"
             ),
         ]
         return "\n".join(parts)

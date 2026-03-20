@@ -134,13 +134,20 @@ async def generate_report(project_id: str):
     project = _projects[project_id]
     seed = project["seed"]
 
-    # Call Claude for probability prediction
+    # Superforecaster-style prompt for calibrated probability estimation
     prompt = (
         f"{seed}\n\n"
-        "Based on the information above, provide a probability estimate (0–100%) "
-        "for the question resolving YES. "
-        "Analyse all relevant factors carefully. "
-        "End your response with exactly: 'Probability: X%' where X is your estimate."
+        "You are an expert superforecaster trained in calibrated probabilistic reasoning.\n\n"
+        "Follow these steps:\n"
+        "1. REFERENCE CLASS: What is the base rate for this type of event?\n"
+        "2. INSIDE VIEW: What specific evidence pushes the probability up or down from the base rate?\n"
+        "3. MARKET PRICE: The current market-implied probability is shown above. "
+        "Do you have strong reason to disagree with the market? If not, stay close to it.\n"
+        "4. AVOID 50%: Only assign 50% if you are genuinely maximally uncertain. "
+        "Push toward your actual best estimate.\n"
+        "5. CALIBRATION: Superforecasters are precise — use specific values like 23%, 67%, 84%, not round numbers unless warranted.\n\n"
+        "Think through steps 1–5 briefly, then end your response with exactly:\n"
+        "Probability: X%"
     )
 
     try:

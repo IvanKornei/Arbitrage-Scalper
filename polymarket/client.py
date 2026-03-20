@@ -234,9 +234,16 @@ class PolymarketClient:
             return {"bids": [], "asks": []}
 
     async def get_best_ask(self, token_id: str) -> float:
+        """Return the best (lowest) ask price for a token.
+
+        Polymarket CLOB returns asks sorted DESCENDING (highest first).
+        The best ask for a buyer is therefore asks[-1], not asks[0].
+        """
         book = await self.get_orderbook(token_id)
         asks = book.get("asks", [])
-        return float(asks[0].get("price", 0)) if asks else 0.0
+        if not asks:
+            return 0.0
+        return min(float(a.get("price", 1.0)) for a in asks)
 
     async def get_balance_usdc(self) -> float:
         """Return USDC balance (collateral) available for trading."""
