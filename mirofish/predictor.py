@@ -20,53 +20,43 @@ from utils.logger import get_logger
 
 log = get_logger(__name__)
 
-# Regex patterns to extract a probability from report text
+# Regex patterns tried in order — last lines of report get priority
 _PROB_PATTERNS = [
-    r"probability[:\s]+([0-9]{1,3})[\s]*%",
-    r"chance[:\s]+([0-9]{1,3})[\s]*%",
-    r"likelihood[:\s]+([0-9]{1,3})[\s]*%",
-    r"([0-9]{1,3})[\s]*%\s+(?:probability|chance|likely|confident)",
-    r"yes[:\s]+([0-9]{1,3})[\s]*%",
-    r"will\s+(?:likely\s+)?(?:happen|occur|win)[^\d]*([0-9]{1,3})[\s]*%",
-    # Decimal form: "0.73" or "73/100"
-    r"probability[:\s]+(0\.[0-9]+)",
-    r"([0-9]+)\s*/\s*100",
+    # Canonical format from prompt: "PROBABILITY: 73%"
+    re.compile(r"^probability[:\s]+[~≈]?\s*([0-9]{1,3}(?:\.[0-9]+)?)\s*%", re.IGNORECASE | re.MULTILINE),
+    # "Final probability: 73%"
+    re.compile(r"final\s+probability[:\s]+[~≈]?\s*([0-9]{1,3}(?:\.[0-9]+)?)\s*%", re.IGNORECASE),
+    # "probability of 73%"
+    re.compile(r"probability\s+of\s+[~≈]?\s*([0-9]{1,3}(?:\.[0-9]+)?)\s*%", re.IGNORECASE),
+    # Generic "X% probability/chance/likely"
+    re.compile(r"([0-9]{1,3}(?:\.[0-9]+)?)\s*%\s+(?:probability|chance|likelihood)", re.IGNORECASE),
+    # "chance: 73%"
+    re.compile(r"chance[:\s]+[~≈]?\s*([0-9]{1,3}(?:\.[0-9]+)?)\s*%", re.IGNORECASE),
+    # Decimal: "probability: 0.73"
+    re.compile(r"probability[:\s]+(0\.[0-9]+)", re.IGNORECASE),
+    # Fraction: "73/100"
+    re.compile(r"\b([0-9]{1,3})\s*/\s*100\b"),
 ]
 
 
 def _extract_probability(text: str) -> Optional[float]:
-    """Parse a YES probability from free-form report text. Returns None if not found."""
-    text_lower = text.lower()
-    for pattern in _PROB_PATTERNS:
-        m = re.search(pattern, text_lower)
-        if m:
-            raw = m.group(1)
-            value = float(raw)
-            # Normalise: if > 1, treat as percentage
-            if value > 1.0:
-                value = value / 100.0
-            if 0.0 <= value <= 1.0:
-                return value
+    """
+    Parse a YES probability from report text.
+    Checks the last 10 lines first (where the answer should be), then full text.
+    Returns None only if genuinely not found.
+    """
+    last_lines = "\n".join(text.strip().splitlines()[-10:])
+    for search_text in (last_lines, text):
+        for pat in _PROB_PATTERNS:
+            m = pat.search(search_text)
+            if m:
+                value = float(m.group(1))
+                if value > 1.0:
+                    value = value / 100.0
+                # Reject exact 0.5 found only via generic patterns (likely a coincidence)
+                if 0.01 <= value <= 0.99:
+                    return value
     return None
-
-
-def _majority_vote(text: str) -> Optional[float]:
-    """
-    Fallback: count sentiment words to estimate YES/NO probability.
-    Returns a soft score between 0 and 1.
-    """
-    yes_words = ["yes", "will", "likely", "probable", "expected", "positive",
-                 "bullish", "increase", "rise", "grow", "success", "win"]
-    no_words  = ["no", "won't", "unlikely", "improbable", "negative", "bearish",
-                 "decrease", "fall", "fail", "loss", "lose", "doubt"]
-
-    t = text.lower()
-    yes_count = sum(t.count(w) for w in yes_words)
-    no_count  = sum(t.count(w) for w in no_words)
-    total = yes_count + no_count
-    if total == 0:
-        return None
-    return yes_count / total
 
 
 class MiroFishPredictor:
@@ -147,14 +137,14 @@ class MiroFishPredictor:
 
             prob = _extract_probability(report_text)
             if prob is not None:
-                log.debug("[Predictor] Extracted via regex: %.3f", prob)
+                log.debug("[Predictor] Extracted probability: %.3f", prob)
             else:
-                prob = _majority_vote(report_text)
-                if prob is not None:
-                    log.debug("[Predictor] Extracted via majority_vote: %.3f", prob)
-                else:
-                    log.warning("[Predictor] Could not extract probability, defaulting to 0.5")
-                    prob = 0.5
+                log.warning(
+                    "[Predictor] Could not extract probability from report — defaulting to 0.5\n"
+                    "Last 300 chars of report: %r",
+                    report_text.strip()[-300:],
+                )
+                prob = 0.5
 
             log.info("[Predictor] %s → YES prob=%.3f", question[:60], prob)
             return prob
