@@ -186,6 +186,13 @@ def exec_safe_approve(spender_addr: str, spender_label: str) -> bool:
 
     print(f"\nApproving {spender_label}...")
     try:
+        # Use "pending" nonce to account for in-flight txs
+        nonce = w3.eth.get_transaction_count(Web3.to_checksum_address(EOA), "pending")
+        # Fetch current base fee and use 2x + generous priority fee
+        base_fee = w3.eth.get_block("latest")["baseFeePerGas"]
+        max_priority = w3.to_wei(40, "gwei")
+        max_fee = base_fee * 3 + max_priority  # well above base fee
+        print(f"  Gas: baseFee={w3.from_wei(base_fee,'gwei'):.1f} maxFee={w3.from_wei(max_fee,'gwei'):.1f} nonce={nonce}")
         tx = safe.functions.execTransaction(
             USDC_ADDR,
             0,
@@ -196,17 +203,17 @@ def exec_safe_approve(spender_addr: str, spender_label: str) -> bool:
             signatures,
         ).build_transaction({
             "from": Web3.to_checksum_address(EOA),
-            "nonce": w3.eth.get_transaction_count(Web3.to_checksum_address(EOA)),
-            "gas": 150_000,
-            "maxFeePerGas": w3.to_wei(50, "gwei"),
-            "maxPriorityFeePerGas": w3.to_wei(30, "gwei"),
+            "nonce": nonce,
+            "gas": 200_000,
+            "maxFeePerGas": max_fee,
+            "maxPriorityFeePerGas": max_priority,
             "chainId": 137,
         })
         signed_tx = w3.eth.account.sign_transaction(tx, PRIVATE_KEY)
         tx_hash_sent = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
         print(f"  TX sent: 0x{tx_hash_sent.hex()}")
-        print(f"  Waiting for confirmation...")
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash_sent, timeout=60)
+        print(f"  Waiting for confirmation (up to 3 min)...")
+        receipt = w3.eth.wait_for_transaction_receipt(tx_hash_sent, timeout=180)
         if receipt.status == 1:
             allowance = usdc.functions.allowance(SAFE_ADDR, spender_addr).call()
             print(f"  ✅ SUCCESS! New allowance: {allowance}")
