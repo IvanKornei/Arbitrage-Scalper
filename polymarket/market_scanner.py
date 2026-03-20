@@ -131,10 +131,10 @@ class MarketScanner:
         """
         Rank by composite score (descending).
 
-        Weights (ratio 300 : 50 : 20, normalised to 1.0):
-          1. Liquidity       – 0.81  deeper book = better MiroFish analysis
-          2. Time proximity  – 0.13  soonest-ending markets first
-          3. Uncertainty     – 0.06  YES price closest to 0.5
+        Weights:
+          1. Time proximity  – 0.50  soonest-ending markets first
+          2. Liquidity       – 0.30  deeper book = better MiroFish analysis
+          3. Uncertainty     – 0.20  YES price closest to 0.5
 
         Markets with no parseable end date get time_score = 0.
         """
@@ -165,7 +165,7 @@ class MarketScanner:
                     time_score = 1.0 - (days_left / max_days) if max_days > 0 else 1.0
 
             uncertainty = 1.0 - abs(m.yes_price - 0.5) * 2
-            return norm_liq * 0.81 + time_score * 0.13 + uncertainty * 0.06
+            return time_score * 0.50 + norm_liq * 0.30 + uncertainty * 0.20
 
         return sorted(markets, key=score, reverse=True)
 
