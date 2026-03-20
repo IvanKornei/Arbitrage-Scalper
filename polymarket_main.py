@@ -22,11 +22,10 @@ Environment variables (see .env.example for full list):
     POLY_MAX_POSITIONS   Max open positions (default: 10)
     POLY_SCAN_INTERVAL   Seconds between scans (default: 1800)
     POLY_SIM_ROUNDS      MiroFish simulation rounds (default: 10)
-    POLY_MIN_VOLUME      Min 24h volume USD to consider a market (default: 500)
-    POLY_MIN_LIQUIDITY   Min liquidity USD to consider a market (default: 200)
-    POLY_MIN_BET_USDC    Minimum bet size (default: 1.0)
-    POLY_MAX_BET_FRACTION Max fraction of bankroll per bet (default: 0.05)
-    POLY_KELLY_FRACTION  Kelly fraction multiplier (default: 0.25)
+    POLY_MIN_VOLUME      Min 24h volume USD to consider a market (default: 0)
+    POLY_MIN_LIQUIDITY   Min liquidity USD to consider a market (default: 0)
+
+Note: bet size is fixed at $1.00 USDC and cannot be changed via environment.
 """
 
 from __future__ import annotations
@@ -78,24 +77,17 @@ def build_config() -> AgentConfig:
         price_deadzone_high = _float("POLY_PRICE_DEADZONE_HIGH", 0.99),
         max_days_to_end     = None,
     )
-    raw_max = os.getenv("POLY_MAX_BET_USDC", "")
-    max_bet_usdc = float(raw_max) if raw_max.strip() else float("inf")
-
     return AgentConfig(
-        mirofish_url        = _str  ("MIROFISH_URL",          "http://localhost:5001"),
-        mirofish_rounds     = _int  ("POLY_SIM_ROUNDS",       10),
-        min_edge_pct        = _float("POLY_MIN_EDGE_PCT",      5.0) / 100.0,
-        max_open_positions  = _int  ("POLY_MAX_POSITIONS",     10),
-        kelly_fraction      = _float("POLY_KELLY_FRACTION",    0.25),
-        max_bet_fraction    = _float("POLY_MAX_BET_FRACTION",  0.05),
-        min_bet_usdc        = _float("POLY_MIN_BET_USDC",      1.0),
-        max_bet_usdc        = max_bet_usdc,
-        scan_interval_sec   = _float("POLY_SCAN_INTERVAL",     1800.0),
-        scan_pages          = _int  ("POLY_SCAN_PAGES",        100),
+        mirofish_url        = _str  ("MIROFISH_URL",           "http://localhost:5001"),
+        mirofish_rounds     = _int  ("POLY_SIM_ROUNDS",        10),
+        min_edge_pct        = _float("POLY_MIN_EDGE_PCT",       5.0) / 100.0,
+        max_open_positions  = _int  ("POLY_MAX_POSITIONS",      10),
+        scan_interval_sec   = _float("POLY_SCAN_INTERVAL",      1800.0),
+        scan_pages          = _int  ("POLY_SCAN_PAGES",         100),
         max_bets_per_cycle  = _int  ("POLY_MAX_BETS_PER_CYCLE", 20),
         price_refresh       = True,
         scan_config         = scan_cfg,
-        dry_run             = _bool ("POLY_DRY_RUN",                True),
+        dry_run             = _bool ("POLY_DRY_RUN",            True),
     )
 
 
