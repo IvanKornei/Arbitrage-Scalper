@@ -71,6 +71,11 @@ class MarketScanner:
         log.info(
             "[Scanner] After filter+rank: %d markets selected", len(result)
         )
+        for i, m in enumerate(result[:5], 1):
+            log.debug(
+                "[Scanner] #%d %s | end=%s | yes=%.2f | vol=%.0f",
+                i, m.question[:50], m.end_date_iso, m.yes_price, m.volume_24h,
+            )
         return result
 
     def _filter(self, markets: List[PolyMarket]) -> List[PolyMarket]:
@@ -187,11 +192,25 @@ class MarketScanner:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _parse_end_date(iso: str) -> Optional[datetime]:
-    """Parse an ISO 8601 end-date string into a timezone-aware datetime.
-    Returns None if the string is empty or unparseable.
+    """Parse an end-date value into a timezone-aware datetime.
+
+    Handles:
+      - Unix timestamps (integer or float as string, e.g. "1735689600")
+      - ISO 8601 strings (various formats returned by Gamma API)
+
+    Returns None if the value is empty or unparseable.
     """
     if not iso:
         return None
+
+    # Unix timestamp (integer or float stored as string)
+    try:
+        ts = float(iso)
+        if ts > 0:
+            return datetime.fromtimestamp(ts, tz=timezone.utc)
+    except (ValueError, TypeError, OSError):
+        pass
+
     for fmt in (
         "%Y-%m-%dT%H:%M:%SZ",
         "%Y-%m-%dT%H:%M:%S.%fZ",
@@ -206,4 +225,6 @@ def _parse_end_date(iso: str) -> Optional[datetime]:
             return dt
         except ValueError:
             continue
+
+    log.debug("[Scanner] Could not parse end_date: %r", iso)
     return None

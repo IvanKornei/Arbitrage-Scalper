@@ -78,6 +78,9 @@ def build_config() -> AgentConfig:
         price_deadzone_high = _float("POLY_PRICE_DEADZONE_HIGH", 0.99),
         max_days_to_end     = None,
     )
+    raw_max = os.getenv("POLY_MAX_BET_USDC", "")
+    max_bet_usdc = float(raw_max) if raw_max.strip() else float("inf")
+
     return AgentConfig(
         mirofish_url        = _str  ("MIROFISH_URL",          "http://localhost:5001"),
         mirofish_rounds     = _int  ("POLY_SIM_ROUNDS",       10),
@@ -86,6 +89,7 @@ def build_config() -> AgentConfig:
         kelly_fraction      = _float("POLY_KELLY_FRACTION",    0.25),
         max_bet_fraction    = _float("POLY_MAX_BET_FRACTION",  0.05),
         min_bet_usdc        = _float("POLY_MIN_BET_USDC",      1.0),
+        max_bet_usdc        = max_bet_usdc,
         scan_interval_sec   = _float("POLY_SCAN_INTERVAL",     1800.0),
         price_refresh       = True,
         scan_config         = scan_cfg,

@@ -47,6 +47,7 @@ class AgentConfig:
     kelly_fraction: float     = 0.25
     max_bet_fraction: float   = 0.05          # max 5% bankroll per bet
     min_bet_usdc: float       = 1.0           # minimum bet size
+    max_bet_usdc: float       = float("inf")  # hard cap per bet in USDC
 
     # Scan timing
     scan_interval_sec: float  = 1800.0        # scan every 30 minutes
@@ -78,6 +79,7 @@ class PolymarketAgent:
             fraction_kelly=config.kelly_fraction,
             max_fraction_of_bankroll=config.max_bet_fraction,
             min_bet_usdc=config.min_bet_usdc,
+            max_bet_usdc=config.max_bet_usdc,
         )
         self._stop_event = asyncio.Event()
         self._cycle      = 0

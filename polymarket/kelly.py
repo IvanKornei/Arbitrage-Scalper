@@ -22,6 +22,7 @@ class KellySizer:
     fraction_kelly: float = 0.25        # how aggressively to follow Kelly
     max_fraction_of_bankroll: float = 0.05  # never bet more than 5% per trade
     min_bet_usdc: float = 1.0           # Polymarket minimum
+    max_bet_usdc: float = float("inf")  # hard cap in USDC (inf = disabled)
 
     def size(
         self,
@@ -56,6 +57,7 @@ class KellySizer:
         fraction = min(fraction, self.max_fraction_of_bankroll)
 
         bet = bankroll * fraction
+        bet = min(bet, self.max_bet_usdc)  # hard cap
         return max(bet, self.min_bet_usdc) if bet >= self.min_bet_usdc else 0.0
 
     def edge(self, our_prob: float, market_price: float) -> float:

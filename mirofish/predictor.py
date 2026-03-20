@@ -139,12 +139,22 @@ class MiroFishPredictor:
             report_id = await self.client.generate_report(project_id)
             report_text = await self.client.get_report_text(project_id, report_id)
 
+            log.debug(
+                "[Predictor] Raw report text (%d chars):\n%s",
+                len(report_text),
+                report_text[:2000],
+            )
+
             prob = _extract_probability(report_text)
-            if prob is None:
+            if prob is not None:
+                log.debug("[Predictor] Extracted via regex: %.3f", prob)
+            else:
                 prob = _majority_vote(report_text)
-            if prob is None:
-                log.warning("[Predictor] Could not extract probability, defaulting to 0.5")
-                prob = 0.5
+                if prob is not None:
+                    log.debug("[Predictor] Extracted via majority_vote: %.3f", prob)
+                else:
+                    log.warning("[Predictor] Could not extract probability, defaulting to 0.5")
+                    prob = 0.5
 
             log.info("[Predictor] %s → YES prob=%.3f", question[:60], prob)
             return prob
