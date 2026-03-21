@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 import statistics
+import time
 import uuid
 from typing import Dict, Any, List, Optional
 
@@ -48,9 +49,17 @@ GEMINI_URL = (
     "/gemini-2.0-flash:generateContent"
 )
 
-# Number of independent Gemini passes per prediction (median is taken).
-# More passes → more stable but slower. 3 is a good default.
-PREDICTION_PASSES = int(os.environ.get("MIROFISH_PASSES", "3"))
+# Number of independent Gemini passes per prediction.
+# Default is 1 — keeps API usage within free-tier limits (15 RPM).
+# Set MIROFISH_PASSES=3 if you have a paid API key with higher quotas.
+PREDICTION_PASSES = int(os.environ.get("MIROFISH_PASSES", "1"))
+
+# Seconds to wait between passes (avoids back-to-back 429s on multi-pass mode).
+INTER_PASS_DELAY = float(os.environ.get("MIROFISH_PASS_DELAY", "4.0"))
+
+# Retry config for Gemini 429 / transient errors
+_MAX_RETRIES = 4
+_RETRY_BASE_DELAY = 5.0   # seconds; doubles each retry: 5, 10, 20, 40
 
 # Superforecaster prompt — independent analysis, then compare to market
 _PROMPT_TEMPLATE = """\
@@ -120,28 +129,55 @@ def _extract_prob_fast(text: str) -> Optional[float]:
 
 
 def _gemini_call(prompt: str, use_search: bool = True) -> str:
-    """Single Gemini API call. Enables Google Search grounding when requested."""
+    """
+    Single Gemini API call with retry on 429 / 5xx.
+    Enables Google Search grounding when requested.
+    """
     payload: Dict[str, Any] = {
         "contents": [{"parts": [{"text": prompt}]}],
     }
     if use_search:
         payload["tools"] = [{"google_search": {}}]
-    resp = requests.post(
-        GEMINI_URL,
-        params={"key": GEMINI_API_KEY},
-        json=payload,
-        timeout=60,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    # When google_search tool is active Gemini may return multiple parts:
-    # parts[0] could be a functionCall (the search query), parts[1] the text.
-    # We scan all parts for the last one that carries a "text" field.
-    parts = data["candidates"][0]["content"]["parts"]
-    for part in reversed(parts):
-        if "text" in part:
-            return part["text"]
-    return ""
+
+    delay = _RETRY_BASE_DELAY
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            resp = requests.post(
+                GEMINI_URL,
+                params={"key": GEMINI_API_KEY},
+                json=payload,
+                timeout=60,
+            )
+            if resp.status_code == 429:
+                # Honour Retry-After header if present, else use backoff
+                retry_after = float(resp.headers.get("Retry-After", delay))
+                wait = max(retry_after, delay)
+                log.warning(
+                    "[MiroFish] 429 Too Many Requests (attempt %d/%d) — waiting %.0fs",
+                    attempt + 1, _MAX_RETRIES + 1, wait,
+                )
+                time.sleep(wait)
+                delay *= 2
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            # When google_search is active, scan all parts for the last text part
+            parts = data["candidates"][0]["content"]["parts"]
+            for part in reversed(parts):
+                if "text" in part:
+                    return part["text"]
+            return ""
+        except requests.exceptions.RequestException as exc:
+            if attempt < _MAX_RETRIES:
+                log.warning(
+                    "[MiroFish] Request error (attempt %d/%d): %s — retrying in %.0fs",
+                    attempt + 1, _MAX_RETRIES + 1, exc, delay,
+                )
+                time.sleep(delay)
+                delay *= 2
+            else:
+                raise
+    raise RuntimeError("Gemini call failed after all retries")
 
 
 def _gemini_predict(seed: str) -> str:
@@ -155,10 +191,13 @@ def _gemini_predict(seed: str) -> str:
     results: List[tuple[float, str]] = []  # (prob, text)
 
     for i in range(PREDICTION_PASSES):
+        if i > 0 and INTER_PASS_DELAY > 0:
+            log.debug("[MiroFish] Inter-pass delay %.1fs", INTER_PASS_DELAY)
+            time.sleep(INTER_PASS_DELAY)
         try:
             text = _gemini_call(prompt, use_search=True)
             log.debug("[MiroFish] Pass %d raw response (%d chars):\n%s",
-                      i + 1, len(text), text[-600:])  # last 600 chars = where answer should be
+                      i + 1, len(text), text[-600:])
             prob = _extract_prob_fast(text)
             if prob is None:
                 log.warning("[MiroFish] Pass %d/%d: could not extract probability from response",
